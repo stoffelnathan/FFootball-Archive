@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model League {
+  id           String   @id @default(cuid())
+  espnLeagueId Int      @unique
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  seasons      Season[]
+}
+
+model Owner {
+  id            String   @id @default(cuid())
+  espnMemberId  String?  @unique
+  displayName   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  teams         Team[]
+  awards        Award[]
+  championOf    Season[] @relation("SeasonChampion")
+  runnerUpOf    Season[] @relation("SeasonRunnerUp")
+}
+
+model Season {
+  id               String   @id @default(cuid())
+  leagueId         String
+  year             Int
+  championId       String?
+  runnerUpId       String?
+  regularSeasonWeeks Int?
+  playoffWeeks     Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  league           League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+  champion         Owner?   @relation("SeasonChampion", fields: [championId], references: [id])
+  runnerUp         Owner?   @relation("SeasonRunnerUp", fields: [runnerUpId], references: [id])
+  teams            Team[]
+  weeks            Week[]
+  draftPicks       DraftPick[]
+  awards           Award[]
+  playerSeasonStats PlayerSeasonStat[]
+  nflTeamSeasonStats NflTeamSeasonStats[]
+
+  @@unique([leagueId, year])
+  @@index([year])
+}
+
+model Team {
+  id             String   @id @default(cuid())
+  seasonId       String
+  ownerId        String
+  espnTeamId     Int
+  teamName       String
+  wins           Int      @default(0)
+  losses         Int      @default(0)
+  ties           Int      @default(0)
+  pointsFor      Float    @default(0)
+  pointsAgainst  Float    @default(0)
+  playoffSeed    Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  season         Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  owner          Owner    @relation(fields: [ownerId], references: [id])
+  homeMatchups   Matchup[] @relation("HomeTeam")
+  awayMatchups   Matchup[] @relation("AwayTeam")
+  rosterSnapshots WeeklyRosterSnapshot[]
+  transactions   Transaction[]
+  draftPicks     DraftPick[]
+  weeklyScores   WeeklyPlayerScore[]
+
+  @@unique([seasonId, espnTeamId])
+  @@index([ownerId])
+}
+
+model Week {
+  id          String   @id @default(cuid())
+  seasonId    String
+  weekNumber  Int
+  isPlayoff   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  season      Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  matchups    Matchup[]
+  playerScores WeeklyPlayerScore[]
+  rosterSnapshots WeeklyRosterSnapshot[]
+  transactions Transaction[]
+
+  @@unique([seasonId, weekNumber])
+}
+
+model Matchup {
+  id          String   @id @default(cuid())
+  weekId      String
+  homeTeamId  String
+  awayTeamId  String
+  homeScore   Float    @default(0)
+  awayScore   Float    @default(0)
+  isPlayoff   Boolean  @default(false)
+  bracketRound Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  week        Week     @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  homeTeam    Team     @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team     @relation("AwayTeam", fields: [awayTeamId], references: [id])
+
+  @@unique([weekId, homeTeamId, awayTeamId])
+}
+
+model Player {
+  id            String   @id @default(cuid())
+  espnPlayerId  Int      @unique
+  name          String
+  position      String
+  nflTeam       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  weeklyScores  WeeklyPlayerScore[]
+  rosterSnapshots WeeklyRosterSnapshot[]
+  draftPicks    DraftPick[]
+  transactions  Transaction[]
+  seasonStats   PlayerSeasonStat[]
+}
+
+model PlayerSeasonStat {
+  id                   String   @id @default(cuid())
+  seasonId             String
+  playerId             String
+  stats                Json
+  fantasyPointsStarted Float    @default(0)
+  fantasyPointsTotal   Float    @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  season               Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  player               Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, playerId])
+  @@index([playerId])
+}
+
+model NflTeamSeasonStats {
+  seasonId String
+  nflTeam  String
+  targets  Int      @default(0)
+  season   Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@id([seasonId, nflTeam])
+}
+
+model WeeklyPlayerScore {
+  id            String   @id @default(cuid())
+  weekId        String
+  playerId      String
+  teamId        String?
+  fantasyPoints Float    @default(0)
+  stats         Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  week          Week     @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  player        Player   @relation(fields: [playerId], references: [id])
+  team          Team?    @relation(fields: [teamId], references: [id])
+
+  @@unique([weekId, playerId, teamId])
+}
+
+model WeeklyRosterSnapshot {
+  id          String   @id @default(cuid())
+  weekId      String
+  teamId      String
+  playerId    String
+  lineupSlot  String
+  starter     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  week        Week     @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player      Player   @relation(fields: [playerId], references: [id])
+
+  @@unique([weekId, teamId, playerId])
+}
+
+model DraftPick {
+  id           String   @id @default(cuid())
+  seasonId     String
+  round        Int
+  overallPick  Int
+  teamId       String
+  playerId     String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  season       Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  team         Team     @relation(fields: [teamId], references: [id])
+  player       Player   @relation(fields: [playerId], references: [id])
+
+  @@unique([seasonId, overallPick])
+}
+
+model Transaction {
+  id              String   @id @default(cuid())
+  weekId          String
+  teamId          String
+  transactionType String
+  playerId        String?
+  espnTransactionId String?
+  details         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  week            Week     @relation(fields: [weekId], references: [id], onDelete: Cascade)
+  team            Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  player          Player?  @relation(fields: [playerId], references: [id])
+
+  @@unique([espnTransactionId])
+}
+
+model Award {
+  id        String   @id @default(cuid())
+  seasonId  String
+  awardType String
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  season    Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  owner     Owner    @relation(fields: [ownerId], references: [id])
+
+  @@unique([seasonId, awardType])
+}
