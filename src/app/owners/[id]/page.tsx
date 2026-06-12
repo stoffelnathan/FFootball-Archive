@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Card, DataTable, PageShell, StatGrid } from "@/components/ui";
+import { resolveFinalRank } from "@/lib/import/team-standings";
 import { getOwnerById } from "@/lib/services/owners";
 import { formatRecord } from "@/lib/types";
 
@@ -13,7 +14,7 @@ export default async function OwnerPage({
   const data = await getOwnerById(id);
   if (!data?.career) notFound();
 
-  const { owner, career } = data;
+  const { owner, career, finalRankByTeamId } = data;
 
   return (
     <PageShell title={owner.displayName} subtitle="Owner career profile">
@@ -57,15 +58,15 @@ export default async function OwnerPage({
       <section className="mt-8 space-y-4">
         <h2 className="text-xl font-medium">Season History</h2>
         <DataTable
-          headers={["Season", "Team", "Record", "PF", "Seed"]}
+          headers={["Season", "Team", "Record", "PF", "Finish"]}
           rows={owner.teams.map((team) => [
-            <Link key={team.id} href={`/seasons/${team.season.year}`} className="text-emerald-300 hover:underline">
+            <Link key={team.id} href={`/owners/${owner.id}/seasons/${team.season.year}`} className="text-emerald-300 hover:underline">
               {team.season.year}
             </Link>,
             team.teamName,
             formatRecord(team.wins, team.losses, team.ties),
             team.pointsFor.toFixed(2),
-            team.playoffSeed ?? "—",
+            resolveFinalRank(team.id, team.finalRank, finalRankByTeamId) ?? "—",
           ])}
         />
       </section>

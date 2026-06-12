@@ -4,13 +4,15 @@ export function PageShell({
   title,
   subtitle,
   children,
+  wide = false,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
+  wide?: boolean;
 }) {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <div className={`mx-auto px-4 py-8 ${wide ? "max-w-[1600px]" : "max-w-6xl"}`}>
       <div className="mb-8">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">
           {title}
@@ -54,38 +56,60 @@ export function Card({
 export function StatGrid({
   items,
 }: {
-  items: Array<{ label: string; value: string; detail?: string; href?: string }>;
+  items: Array<{
+    label: string;
+    value: string;
+    detail?: string;
+    href?: string;
+    links?: Array<{ label: string; href: string }>;
+  }>;
 }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {items.map((item) => {
+        const hasInnerLinks = Boolean(item.links?.length);
+        const cardClassName =
+          "rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 transition hover:border-emerald-700/50";
+
         const content = (
           <>
             <p className="text-xs uppercase tracking-wide text-zinc-500">
               {item.label}
             </p>
-            <p className="mt-2 text-2xl font-semibold text-zinc-100">
-              {item.value}
-            </p>
+            {hasInnerLinks ? (
+              <p className="mt-2 text-2xl font-semibold text-zinc-100">
+                {item.links!.map((link, index) => (
+                  <span key={link.href}>
+                    {index > 0 ? ", " : null}
+                    <Link
+                      href={link.href}
+                      className="text-emerald-300 hover:underline"
+                    >
+                      {link.label}
+                    </Link>
+                  </span>
+                ))}
+              </p>
+            ) : item.href ? (
+              <Link
+                href={item.href}
+                className="mt-2 block text-2xl font-semibold text-emerald-300 hover:underline"
+              >
+                {item.value}
+              </Link>
+            ) : (
+              <p className="mt-2 text-2xl font-semibold text-zinc-100">
+                {item.value}
+              </p>
+            )}
             {item.detail ? (
               <p className="mt-1 text-sm text-zinc-400">{item.detail}</p>
             ) : null}
           </>
         );
 
-        return item.href ? (
-          <Link
-            key={`${item.label}-${item.value}`}
-            href={item.href}
-            className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5 transition hover:border-emerald-700/50"
-          >
-            {content}
-          </Link>
-        ) : (
-          <div
-            key={`${item.label}-${item.value}`}
-            className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5"
-          >
+        return (
+          <div key={item.label} className={cardClassName}>
             {content}
           </div>
         );

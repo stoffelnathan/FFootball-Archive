@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { Card, PageShell } from "@/components/ui";
 import { getLeagueRecords } from "@/lib/services/seasons";
+import type { LeagueRecordEntry } from "@/lib/types";
 
 const SECTION_LABELS = {
   weekly: ["Highest Score", "Lowest Score", "Closest Game", "Largest Blowout"],
@@ -8,6 +10,36 @@ const SECTION_LABELS = {
   draft: ["Best Draft Pick", "Biggest Bust"],
 };
 
+function RecordLabel({ entry }: { entry: LeagueRecordEntry }) {
+  if (entry.links?.length) {
+    return (
+      <p className="mt-2 text-lg font-semibold">
+        {entry.links.map((link, index) => (
+          <span key={link.href}>
+            {index > 0 ? ", " : null}
+            <Link href={link.href} className="text-emerald-300 hover:underline">
+              {link.label}
+            </Link>
+          </span>
+        ))}
+      </p>
+    );
+  }
+
+  if (entry.href) {
+    return (
+      <Link
+        href={entry.href}
+        className="mt-2 block text-lg font-semibold text-emerald-300 hover:underline"
+      >
+        {entry.label}
+      </Link>
+    );
+  }
+
+  return <p className="mt-2 text-lg font-semibold">{entry.label}</p>;
+}
+
 function RecordSection({
   title,
   labels,
@@ -15,7 +47,7 @@ function RecordSection({
 }: {
   title: string;
   labels: string[];
-  entries: Array<{ label: string; value: string; detail?: string; href?: string }>;
+  entries: LeagueRecordEntry[];
 }) {
   return (
     <section className="space-y-4">
@@ -26,7 +58,7 @@ function RecordSection({
             <p className="text-xs uppercase tracking-wide text-zinc-500">
               {labels[index]}
             </p>
-            <p className="mt-2 text-lg font-semibold">{entry.label}</p>
+            <RecordLabel entry={entry} />
             <p className="text-emerald-300">{entry.value}</p>
             {entry.detail ? (
               <p className="mt-1 text-sm text-zinc-400">{entry.detail}</p>

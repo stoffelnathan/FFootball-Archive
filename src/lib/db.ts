@@ -2,15 +2,24 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 import pg from "pg";
 
+const PRISMA_SCHEMA_VERSION = 2;
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
   pgPool: pg.Pool | undefined;
+  prismaSchemaVersion?: number;
 };
+
+const REQUIRED_PRISMA_MODELS = ["playerSeasonStat", "playerProWeekStat"] as const;
 
 function isPrismaClientReady(
   client: PrismaClient | undefined,
 ): client is PrismaClient {
-  return Boolean(client && "playerSeasonStat" in client);
+  return Boolean(
+    client &&
+      globalForPrisma.prismaSchemaVersion === PRISMA_SCHEMA_VERSION &&
+      REQUIRED_PRISMA_MODELS.every((model) => model in client),
+  );
 }
 
 function createPrismaClient(): PrismaClient {
@@ -40,7 +49,9 @@ function createPrismaClient(): PrismaClient {
   }
 
   const adapter = new PrismaPg(pool);
-  return new PrismaClient({ adapter });
+  const client = new PrismaClient({ adapter });
+  globalForPrisma.prismaSchemaVersion = PRISMA_SCHEMA_VERSION;
+  return client;
 }
 
 function resolvePrismaClient(): PrismaClient {

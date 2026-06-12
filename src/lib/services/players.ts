@@ -4,6 +4,14 @@ import {
   teamTargetsForSeason,
 } from "@/lib/import/player-season-stats";
 import { type PlayerStatMap } from "@/lib/espn/player-stats";
+import {
+  buildPosRanks,
+  formatPosRank,
+  type PlayerPositionFilterId,
+  positionsForFilter,
+} from "@/lib/player-positions";
+import { formatWeekMatchupLabel } from "@/lib/espn/pro-schedule";
+import { ensurePlayerProStats } from "@/lib/import/player-pro-stats";
 import { isEspnPlayerId } from "@/lib/player-url";
 
 function statsFromJson(value: unknown): PlayerStatMap {
@@ -34,50 +42,142 @@ export async function getAvailableSeasonYears() {
 }
 
 export async function getPlayers(search?: string) {
-  const [seasonYears, players] = await Promise.all([
-    getAvailableSeasonYears(),
-    prisma.player.findMany({
-      where: search
-        ? { name: { contains: search, mode: "insensitive" } }
-        : undefined,
-      orderBy: { name: "asc" },
-      take: search ? 50 : 200,
-    }),
-  ]);
-
-  if (players.length === 0) {
-    return { seasonYears, players: [] };
-  }
-
-  const seasonStats = await prisma.playerSeasonStat.findMany({
-    where: { playerId: { in: players.map((player) => player.id) } },
-    include: { season: { select: { year: true } } },
+  const directory = await getPlayerDirectory({
+    search,
+    position: "OFFENSE",
   });
 
-  const totalsByPlayer = new Map<string, Map<number, number>>();
-  for (const row of seasonStats) {
-    const playerTotals =
-      totalsByPlayer.get(row.playerId) ?? new Map<number, number>();
-    playerTotals.set(row.season.year, row.fantasyPointsTotal);
-    totalsByPlayer.set(row.playerId, playerTotals);
+  return {
+    seasonYears: directory.seasonYears,
+    players: directory.players.map((player) => ({
+      id: player.id,
+      espnPlayerId: player.espnPlayerId,
+      name: player.name,
+      position: player.position,
+      nflTeam: player.nflTeam,
+      seasonPoints: {
+        [directory.latestSeasonYear]: player.points,
+      },
+    })),
+  };
+}
+
+export type PlayerDirectoryEntry = {
+  id: string;
+  espnPlayerId: number;
+  name: string;
+  position: string;
+  nflTeam: string | null;
+  points: number;
+  posRank: number | null;
+  posRankLabel: string;
+};
+
+export async function getPlayerDirectory(options?: {
+  search?: string;
+  position?: PlayerPositionFilterId;
+}) {
+  const seasonYears = await getAvailableSeasonYears();
+  const latestSeasonYear = seasonYears[seasonYears.length - 1] ?? new Date().getFullYear();
+  const positionFilter = options?.position ?? "OFFENSE";
+  const allowedPositions = positionsForFilter(positionFilter);
+
+  const latestSeason = await prisma.season.findFirst({
+    where: { year: latestSeasonYear },
+    select: { id: true },
+  });
+
+  if (!latestSeason) {
+    return {
+      latestSeasonYear,
+      seasonYears,
+      positionFilter,
+      players: [] as PlayerDirectoryEntry[],
+    };
   }
 
-  return {
-    seasonYears,
-    players: players.map((player) => ({
-      ...player,
-      seasonPoints: Object.fromEntries(
-        seasonYears.map((year) => [
-          year,
-          totalsByPlayer.get(player.id)?.get(year) ?? 0,
-        ]),
-      ),
+  const allScoredPlayers = await prisma.player.findMany({
+    where: {
+      seasonStats: {
+        some: {
+          seasonId: latestSeason.id,
+          fantasyPointsTotal: { gt: 0 },
+        },
+      },
+    },
+    include: {
+      seasonStats: {
+        where: { seasonId: latestSeason.id },
+        take: 1,
+      },
+    },
+  });
+
+  const posRanks = buildPosRanks(
+    allScoredPlayers.map((player) => ({
+      id: player.id,
+      position: player.position,
+      points: player.seasonStats[0]?.fantasyPointsTotal ?? 0,
     })),
+  );
+
+  const players = await prisma.player.findMany({
+    where: {
+      ...(options?.search
+        ? { name: { contains: options.search, mode: "insensitive" } }
+        : {}),
+      ...(allowedPositions
+        ? { position: { in: allowedPositions } }
+        : {}),
+      seasonStats: {
+        some: {
+          seasonId: latestSeason.id,
+          fantasyPointsTotal: { gt: 0 },
+        },
+      },
+    },
+    include: {
+      seasonStats: {
+        where: { seasonId: latestSeason.id },
+        take: 1,
+      },
+    },
+  });
+
+  const withPoints = players
+    .map((player) => ({
+      id: player.id,
+      espnPlayerId: player.espnPlayerId,
+      name: player.name,
+      position: player.position,
+      nflTeam: player.nflTeam,
+      points: player.seasonStats[0]?.fantasyPointsTotal ?? 0,
+    }))
+    .filter((player) => player.points > 0);
+
+  const directory = withPoints
+    .map((player) => {
+      const rank = posRanks.get(player.id) ?? null;
+      return {
+        ...player,
+        posRank: rank,
+        posRankLabel: formatPosRank(player.position, rank),
+      };
+    })
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+
+  return {
+    latestSeasonYear,
+    seasonYears,
+    positionFilter,
+    players: directory,
   };
 }
 
 async function buildSeasonStatsBundle(
   playerId: string,
+  espnPlayerId: number,
+  position: string,
   nflTeam: string | null,
   year: number,
 ) {
@@ -87,50 +187,87 @@ async function buildSeasonStatsBundle(
   });
   if (!season) return null;
 
-  const [seasonStat, teamTargets, weeklyScores] = await Promise.all([
-    prisma.playerSeasonStat.findUnique({
-      where: {
-        seasonId_playerId: {
-          seasonId: season.id,
-          playerId,
+  await ensurePlayerProStats(playerId, espnPlayerId, year);
+
+  const [seasonStat, teamTargets, proWeekStats, rosterWeeklyScores, posRank] =
+    await Promise.all([
+      prisma.playerSeasonStat.findUnique({
+        where: {
+          seasonId_playerId: {
+            seasonId: season.id,
+            playerId,
+          },
         },
-      },
-    }),
-    teamTargetsForSeason(season.id, nflTeam),
-    prisma.weeklyPlayerScore.findMany({
-      where: {
-        playerId,
-        week: { seasonId: season.id },
-      },
-      include: {
-        week: true,
-        team: { include: { owner: true } },
-      },
-      orderBy: { week: { weekNumber: "asc" } },
-    }),
-  ]);
+      }),
+      teamTargetsForSeason(season.id, nflTeam),
+      prisma.playerProWeekStat.findMany({
+        where: { seasonId: season.id, playerId },
+        orderBy: { weekNumber: "asc" },
+      }),
+      prisma.weeklyPlayerScore.findMany({
+        where: {
+          playerId,
+          week: { seasonId: season.id },
+        },
+        include: {
+          week: true,
+          team: { include: { owner: true } },
+        },
+        orderBy: { week: { weekNumber: "asc" } },
+      }),
+      getPosRankForPlayer(season.id, playerId, position),
+    ]);
 
-  if (!seasonStat && weeklyScores.length === 0) return null;
+  if (!seasonStat && proWeekStats.length === 0 && rosterWeeklyScores.length === 0) {
+    return null;
+  }
 
-  const weekly = weeklyScores.map((score) => {
-    const stats = statsFromJson(score.stats);
-    return {
-      weekNumber: score.week.weekNumber,
-      fantasyPoints: score.fantasyPoints,
-      ownerName: score.team?.owner.displayName ?? "—",
-      stats,
-    };
-  });
+  const ownerByWeek = new Map<number, string>();
+  for (const score of rosterWeeklyScores) {
+    const ownerName = score.team?.owner.displayName;
+    if (ownerName) {
+      ownerByWeek.set(score.week.weekNumber, ownerName);
+    }
+  }
+
+  const weeklySource =
+    proWeekStats.length > 0
+      ? proWeekStats.map((row) => ({
+          weekNumber: row.weekNumber,
+          fantasyPoints: row.fantasyPoints,
+          ownerName: ownerByWeek.get(row.weekNumber) ?? "—",
+          stats: statsFromJson(row.stats),
+          weekLabel: formatWeekMatchupLabel(row.weekNumber, row.matchupLabel),
+        }))
+      : rosterWeeklyScores.map((score) => {
+          const stats = statsFromJson(score.stats);
+          return {
+            weekNumber: score.week.weekNumber,
+            fantasyPoints: score.fantasyPoints,
+            ownerName: score.team?.owner.displayName ?? "—",
+            stats,
+            weekLabel: `Week ${score.week.weekNumber}`,
+          };
+        });
 
   const seasonStats = statsFromJson(seasonStat?.stats);
+  const proWeeklyTotal = weeklySource.reduce(
+    (total, line) => total + line.fantasyPoints,
+    0,
+  );
+  const fantasyPointsTotal =
+    seasonStat?.fantasyPointsTotal && seasonStat.fantasyPointsTotal > 0
+      ? seasonStat.fantasyPointsTotal
+      : proWeeklyTotal;
+
   const totals = buildDisplayStats(
     seasonStats,
     teamTargets,
-    seasonStat?.fantasyPointsTotal ?? 0,
+    fantasyPointsTotal,
   );
 
-  if (seasonStats.receptions != null) {
-    totals.games = weekly.filter(
+  if (seasonStats.receptions != null || weeklySource.length > 0) {
+    totals.games = weeklySource.filter(
       (line) =>
         line.fantasyPoints > 0 ||
         (line.stats.receptions ?? 0) > 0 ||
@@ -139,10 +276,41 @@ async function buildSeasonStatsBundle(
   }
 
   return {
-    ownerName: weekly.find((line) => line.ownerName !== "—")?.ownerName ?? "—",
+    ownerName:
+      weeklySource.find((line) => line.ownerName !== "—")?.ownerName ?? "—",
     totals,
-    weekly,
+    weekly: weeklySource,
+    posRank,
+    posRankLabel: formatPosRank(position, posRank),
   };
+}
+
+async function getPosRankForPlayer(
+  seasonId: string,
+  playerId: string,
+  position: string,
+) {
+  const seasonStatRows = await prisma.playerSeasonStat.findMany({
+    where: {
+      seasonId,
+      fantasyPointsTotal: { gt: 0 },
+      player: { position },
+    },
+    select: {
+      fantasyPointsTotal: true,
+      player: { select: { id: true, position: true } },
+    },
+  });
+
+  const ranks = buildPosRanks(
+    seasonStatRows.map((row) => ({
+      id: row.player.id,
+      position: row.player.position,
+      points: row.fantasyPointsTotal,
+    })),
+  );
+
+  return ranks.get(playerId) ?? null;
 }
 
 export async function getPlayerById(routeId: string) {
@@ -170,6 +338,8 @@ export async function getPlayerById(routeId: string) {
       year,
       bundle: await buildSeasonStatsBundle(
         playerRecord.id,
+        playerRecord.espnPlayerId,
+        playerRecord.position,
         playerRecord.nflTeam,
         year,
       ),

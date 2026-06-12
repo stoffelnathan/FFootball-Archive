@@ -36,6 +36,7 @@ model Season {
   runnerUpId       String?
   regularSeasonWeeks Int?
   playoffWeeks     Int?
+  playoffTeamCount Int?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   league           League   @relation(fields: [leagueId], references: [id], onDelete: Cascade)
@@ -46,6 +47,7 @@ model Season {
   draftPicks       DraftPick[]
   awards           Award[]
   playerSeasonStats PlayerSeasonStat[]
+  playerProWeekStats PlayerProWeekStat[]
   nflTeamSeasonStats NflTeamSeasonStats[]
 
   @@unique([leagueId, year])
@@ -64,6 +66,7 @@ model Team {
   pointsFor      Float    @default(0)
   pointsAgainst  Float    @default(0)
   playoffSeed    Int?
+  finalRank      Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   season         Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
@@ -126,6 +129,7 @@ model Player {
   draftPicks    DraftPick[]
   transactions  Transaction[]
   seasonStats   PlayerSeasonStat[]
+  proWeekStats  PlayerProWeekStat[]
 }
 
 model PlayerSeasonStat {
@@ -142,6 +146,25 @@ model PlayerSeasonStat {
 
   @@unique([seasonId, playerId])
   @@index([playerId])
+}
+
+model PlayerProWeekStat {
+  id            String   @id @default(cuid())
+  seasonId      String
+  playerId      String
+  weekNumber    Int
+  fantasyPoints Float    @default(0)
+  stats         Json?
+  proTeamId     Int?
+  matchupLabel  String?
+  espnGameId    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  season        Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([seasonId, playerId, weekNumber])
+  @@index([playerId, seasonId])
 }
 
 model NflTeamSeasonStats {

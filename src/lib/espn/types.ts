@@ -44,6 +44,9 @@ export interface EspnTeam {
     };
   };
   rank?: number;
+  playoffSeed?: number;
+  rankCalculatedFinal?: number;
+  finalStandingsPosition?: number;
   roster?: {
     entries?: EspnRosterEntry[];
   };
@@ -72,6 +75,8 @@ export interface EspnPlayerStatEntry {
   statSourceId?: number;
   stats?: Record<string, number>;
   appliedTotal?: number;
+  proTeamId?: number;
+  externalId?: string;
 }
 
 export interface EspnScheduleMatchup {

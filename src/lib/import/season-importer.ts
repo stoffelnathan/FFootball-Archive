@@ -14,6 +14,7 @@ import type {
   EspnTeam,
 } from "@/lib/espn/types";
 import { resolveSeasonChampions } from "@/lib/import/champions";
+import { standingsFromEspnTeam } from "@/lib/import/team-standings";
 import {
   upsertPlayerSeasonStatFromEspn,
 } from "@/lib/import/player-season-stats";
@@ -207,10 +208,12 @@ export class SeasonImporter {
         year,
         regularSeasonWeeks,
         playoffWeeks,
+        playoffTeamCount: playoffTeamCount > 0 ? playoffTeamCount : null,
       },
       update: {
         regularSeasonWeeks,
         playoffWeeks,
+        playoffTeamCount: playoffTeamCount > 0 ? playoffTeamCount : null,
       },
     });
   }
@@ -231,6 +234,8 @@ export class SeasonImporter {
       }
 
       const record = team.record?.overall;
+      const { playoffSeed, finalRank } = standingsFromEspnTeam(team);
+
       const saved = await prisma.team.upsert({
         where: {
           seasonId_espnTeamId: {
@@ -248,7 +253,8 @@ export class SeasonImporter {
           ties: record?.ties ?? 0,
           pointsFor: record?.pointsFor ?? 0,
           pointsAgainst: record?.pointsAgainst ?? 0,
-          playoffSeed: team.rank ?? null,
+          playoffSeed,
+          finalRank,
         },
         update: {
           ownerId,
@@ -258,7 +264,8 @@ export class SeasonImporter {
           ties: record?.ties ?? 0,
           pointsFor: record?.pointsFor ?? 0,
           pointsAgainst: record?.pointsAgainst ?? 0,
-          playoffSeed: team.rank ?? null,
+          playoffSeed,
+          finalRank,
         },
       });
 

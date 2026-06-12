@@ -1,4 +1,10 @@
 import { prisma } from "@/lib/db";
+import {
+  getCachedFinalRankMap,
+  loadFinalRankMap,
+  madePlayoffs,
+  resolveFinalRank,
+} from "@/lib/import/team-standings";
 import type { MatchupResult, OwnerCareerStats } from "@/lib/types";
 import { winPercentage } from "@/lib/types";
 
@@ -47,6 +53,13 @@ export async function getAllMatchupResults(): Promise<MatchupResult[]> {
 }
 
 export async function getOwnerCareerStats(): Promise<OwnerCareerStats[]> {
+  try {
+    await loadFinalRankMap();
+  } catch (error) {
+    console.warn("Could not sync final ranks from ESPN:", error);
+  }
+
+  const rankMap = getCachedFinalRankMap();
   const owners = await prisma.owner.findMany({
     include: {
       teams: { include: { season: true } },
@@ -65,11 +78,14 @@ export async function getOwnerCareerStats(): Promise<OwnerCareerStats[]> {
       (sum, team) => sum + team.pointsAgainst,
       0,
     );
-    const seeds = owner.teams
-      .map((team) => team.playoffSeed)
-      .filter((seed): seed is number => seed != null);
-    const playoffAppearances = owner.teams.filter(
-      (team) => team.playoffSeed != null && team.playoffSeed <= 6,
+    const finishes = owner.teams
+      .map((team) => resolveFinalRank(team.id, team.finalRank, rankMap))
+      .filter((rank): rank is number => rank != null);
+    const playoffAppearances = owner.teams.filter((team) =>
+      madePlayoffs(
+        team.playoffSeed,
+        team.season.playoffTeamCount ?? undefined,
+      ),
     ).length;
 
     return {
@@ -85,17 +101,26 @@ export async function getOwnerCareerStats(): Promise<OwnerCareerStats[]> {
       pointsAgainst,
       playoffAppearances,
       averageFinish:
-        seeds.length > 0
-          ? seeds.reduce((sum, seed) => sum + seed, 0) / seeds.length
+        finishes.length > 0
+          ? finishes.reduce((sum, rank) => sum + rank, 0) / finishes.length
           : null,
       seasonsPlayed: owner.teams.length,
     };
   });
 }
 
-export function computeLongestWinStreak(
+export function getTopTied<T>(
+  items: T[],
+  getValue: (item: T) => number,
+): T[] {
+  if (items.length === 0) return [];
+  const max = Math.max(...items.map(getValue));
+  return items.filter((item) => getValue(item) === max);
+}
+
+export function computeLongestWinStreaks(
   results: MatchupResult[],
-): { ownerId: string; streak: number } | null {
+): Array<{ ownerId: string; streak: number }> {
   const byOwner = new Map<string, MatchupResult[]>();
   for (const result of results) {
     const list = byOwner.get(result.ownerId) ?? [];
@@ -103,45 +128,46 @@ export function computeLongestWinStreak(
     byOwner.set(result.ownerId, list);
   }
 
-  let best: { ownerId: string; streak: number } | null = null;
+  const streaks: Array<{ ownerId: string; streak: number }> = [];
 
   for (const [ownerId, games] of byOwner) {
     let current = 0;
+    let best = 0;
     for (const game of games) {
       if (game.won) {
         current += 1;
-        if (!best || current > best.streak) {
-          best = { ownerId, streak: current };
-        }
+        best = Math.max(best, current);
       } else if (!game.tied) {
         current = 0;
       }
     }
+    streaks.push({ ownerId, streak: best });
   }
 
-  return best;
+  const maxStreak = Math.max(...streaks.map((entry) => entry.streak), 0);
+  return streaks.filter((entry) => entry.streak === maxStreak && entry.streak > 0);
 }
 
-export function computeHighestWeeklyScore(
+export function uniqueHighestWeeklyScores(
   results: MatchupResult[],
-): { ownerId: string; score: number; seasonYear: number; weekNumber: number } | null {
-  let best: {
-    ownerId: string;
-    score: number;
-    seasonYear: number;
-    weekNumber: number;
-  } | null = null;
-
+): Array<{
+  ownerId: string;
+  score: number;
+  seasonYear: number;
+  weekNumber: number;
+}> {
+  let bestScore = 0;
   for (const result of results) {
-    if (!best || result.teamScore > best.score) {
-      best = {
-        ownerId: result.ownerId,
-        score: result.teamScore,
-        seasonYear: result.seasonYear,
-        weekNumber: result.weekNumber,
-      };
-    }
+    if (result.teamScore > bestScore) bestScore = result.teamScore;
   }
+  if (bestScore === 0) return [];
 
-  return best;
+  return results
+    .filter((result) => result.teamScore === bestScore)
+    .map((result) => ({
+      ownerId: result.ownerId,
+      score: result.teamScore,
+      seasonYear: result.seasonYear,
+      weekNumber: result.weekNumber,
+    }));
 }

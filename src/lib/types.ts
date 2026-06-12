@@ -32,6 +32,7 @@ export type LeagueRecordEntry = {
   value: string;
   detail?: string;
   href?: string;
+  links?: Array<{ label: string; href: string }>;
 };
 
 export type ComputedAward = {

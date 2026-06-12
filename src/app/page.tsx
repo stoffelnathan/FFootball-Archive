@@ -1,14 +1,26 @@
 import Link from "next/link";
 import { Card, PageShell, StatGrid } from "@/components/ui";
-import { getHomepageData } from "@/lib/services/seasons";
-import { getLeagueRecords } from "@/lib/services/seasons";
+import { getHomepageData, getLeagueRecords } from "@/lib/services/seasons";
 import { formatRecord } from "@/lib/types";
+
+function ownerLinks(owners: Array<{ ownerId: string; displayName: string }>) {
+  return owners.map((owner) => ({
+    label: owner.displayName,
+    href: `/owners/${owner.ownerId}`,
+  }));
+}
 
 export default async function HomePage() {
   const [home, records] = await Promise.all([
     getHomepageData(),
     getLeagueRecords(),
   ]);
+
+  const { highlights } = home;
+  const titleCount = highlights.championshipLeaders[0]?.championships ?? 0;
+  const winCount = highlights.winsLeaders[0]?.wins ?? 0;
+  const streakCount = highlights.streakLeaders[0]?.streak ?? 0;
+  const topScore = highlights.highestScore?.score;
 
   return (
     <PageShell
@@ -20,38 +32,70 @@ export default async function HomePage() {
           items={[
             {
               label: "Most Championships",
-              value: home.highlights.mostChampionships?.displayName ?? "—",
-              detail: `${home.highlights.mostChampionships?.championships ?? 0} titles`,
-              href: home.highlights.mostChampionships
-                ? `/owners/${home.highlights.mostChampionships.ownerId}`
-                : undefined,
+              value:
+                highlights.championshipLeaders[0]?.displayName ?? "—",
+              detail:
+                titleCount > 0
+                  ? `${titleCount} title${titleCount === 1 ? "" : "s"}${highlights.championshipLeaders.length > 1 ? " each" : ""}`
+                  : undefined,
+              links:
+                highlights.championshipLeaders.length > 0
+                  ? ownerLinks(highlights.championshipLeaders)
+                  : undefined,
             },
             {
               label: "Career Wins Leader",
-              value: home.highlights.careerWinsLeader?.displayName ?? "—",
-              detail: `${home.highlights.careerWinsLeader?.wins ?? 0} wins`,
-              href: home.highlights.careerWinsLeader
-                ? `/owners/${home.highlights.careerWinsLeader.ownerId}`
-                : undefined,
+              value: highlights.winsLeaders[0]?.displayName ?? "—",
+              detail:
+                winCount > 0
+                  ? `${winCount} win${winCount === 1 ? "" : "s"}${highlights.winsLeaders.length > 1 ? " each" : ""}`
+                  : undefined,
+              links:
+                highlights.winsLeaders.length > 0
+                  ? ownerLinks(highlights.winsLeaders)
+                  : undefined,
             },
             {
               label: "Highest Weekly Score",
-              value: home.highlights.highestScore
-                ? home.highlights.highestScore.score.toFixed(2)
-                : "—",
-              detail: home.highlights.highestScore
-                ? `${home.highlights.highestScore.ownerName}, Week ${home.highlights.highestScore.weekNumber} (${home.highlights.highestScore.seasonYear})`
-                : undefined,
+              value: topScore != null ? topScore.toFixed(2) : "—",
+              detail:
+                highlights.scoreLeaders.length > 0 && topScore != null
+                  ? highlights.scoreLeaders.length === 1
+                    ? `${highlights.scoreLeaders[0].ownerName}, Week ${highlights.scoreLeaders[0].weekNumber} (${highlights.scoreLeaders[0].seasonYear})`
+                    : `${topScore.toFixed(2)} pts — ${highlights.scoreLeaders.map((entry) => entry.ownerName).join(", ")}`
+                  : undefined,
+              links:
+                highlights.scoreLeaders.length > 1
+                  ? highlights.scoreLeaders.map((entry) => ({
+                      label: entry.ownerName,
+                      href: `/owners/${entry.ownerId}`,
+                    }))
+                  : undefined,
+              href:
+                highlights.scoreLeaders.length === 1
+                  ? `/owners/${highlights.scoreLeaders[0].ownerId}`
+                  : undefined,
             },
             {
               label: "Longest Win Streak",
-              value: home.highlights.longestStreak
-                ? String(home.highlights.longestStreak.streak)
-                : "—",
-              detail: home.highlights.longestStreak?.ownerName,
-              href: home.highlights.longestStreak
-                ? `/owners/${home.highlights.longestStreak.ownerId}`
-                : undefined,
+              value: streakCount > 0 ? String(streakCount) : "—",
+              detail:
+                highlights.streakLeaders.length > 0
+                  ? highlights.streakLeaders
+                      .map((entry) => entry.ownerName)
+                      .join(", ")
+                  : undefined,
+              links:
+                highlights.streakLeaders.length > 1
+                  ? highlights.streakLeaders.map((entry) => ({
+                      label: entry.ownerName,
+                      href: `/owners/${entry.ownerId}`,
+                    }))
+                  : undefined,
+              href:
+                highlights.streakLeaders.length === 1
+                  ? `/owners/${highlights.streakLeaders[0].ownerId}`
+                  : undefined,
             },
           ]}
         />
@@ -80,7 +124,30 @@ export default async function HomePage() {
             <div className="space-y-3 text-sm">
               <div>
                 <p className="text-zinc-500">Highest weekly score</p>
-                <p>{records.weekly[0]?.label}: {records.weekly[0]?.value}</p>
+                {records.weekly[0]?.links?.length ? (
+                  <p>
+                    {records.weekly[0].links.map((link, index) => (
+                      <span key={link.href}>
+                        {index > 0 ? ", " : null}
+                        <Link
+                          href={link.href}
+                          className="text-emerald-300 hover:underline"
+                        >
+                          {link.label}
+                        </Link>
+                      </span>
+                    ))}
+                    {": "}
+                    {records.weekly[0].value}
+                  </p>
+                ) : (
+                  <p>
+                    {records.weekly[0]?.label}: {records.weekly[0]?.value}
+                  </p>
+                )}
+                {records.weekly[0]?.detail ? (
+                  <p className="text-zinc-500">{records.weekly[0].detail}</p>
+                ) : null}
               </div>
               <div>
                 <p className="text-zinc-500">Largest blowout</p>

@@ -1,15 +1,38 @@
 import { prisma } from "@/lib/db";
 import {
-  computeHighestWeeklyScore,
-  computeLongestWinStreak,
+  computeLongestWinStreaks,
   getAllMatchupResults,
   getOwnerCareerStats,
+  getTopTied,
+  uniqueHighestWeeklyScores,
 } from "@/lib/services/stats";
 import { getLeague } from "@/lib/services/league";
 import { matchupLabel, ownerLabel } from "@/lib/format";
 import { playerHref } from "@/lib/player-url";
-import type { LeagueRecordEntry } from "@/lib/types";
+import type { LeagueRecordEntry, OwnerCareerStats } from "@/lib/types";
 import { formatRecord } from "@/lib/types";
+
+function tiedOwnerRecord(
+  owners: OwnerCareerStats[],
+  value: string,
+): LeagueRecordEntry {
+  if (owners.length === 0) {
+    return { label: "N/A", value: "—" };
+  }
+
+  return {
+    label: owners.map((owner) => owner.displayName).join(", "),
+    value,
+    links:
+      owners.length > 1
+        ? owners.map((owner) => ({
+            label: owner.displayName,
+            href: `/owners/${owner.ownerId}`,
+          }))
+        : undefined,
+    href: owners.length === 1 ? `/owners/${owners[0].ownerId}` : undefined,
+  };
+}
 
 export async function getSeasonsList() {
   const league = await getLeague();
@@ -58,13 +81,17 @@ export async function getHomepageData() {
   ]);
 
   const ownerMap = new Map(careerStats.map((owner) => [owner.ownerId, owner]));
-  const longestStreak = computeLongestWinStreak(matchupResults);
-  const highestScore = computeHighestWeeklyScore(matchupResults);
+  const streakLeaders = computeLongestWinStreaks(matchupResults);
+  const scoreLeaders = uniqueHighestWeeklyScores(matchupResults);
+  const championshipLeaders = getTopTied(
+    careerStats,
+    (owner) => owner.championships,
+  ).filter((owner) => owner.championships > 0);
+  const winsLeaders = getTopTied(careerStats, (owner) => owner.wins).filter(
+    (owner) => owner.wins > 0,
+  );
 
-  const mostChampionships = [...careerStats].sort(
-    (a, b) => b.championships - a.championships,
-  )[0];
-  const careerWinsLeader = [...careerStats].sort((a, b) => b.wins - a.wins)[0];
+  const highestScore = scoreLeaders[0] ?? null;
 
   return {
     leagueName: league?.name ?? "Fantasy League Archive",
@@ -77,18 +104,21 @@ export async function getHomepageData() {
         championId: season.championId!,
       })),
     highlights: {
-      mostChampionships,
-      careerWinsLeader,
-      longestStreak: longestStreak
-        ? {
-            ...longestStreak,
-            ownerName: ownerMap.get(longestStreak.ownerId)?.displayName ?? "Unknown",
-          }
-        : null,
+      championshipLeaders,
+      winsLeaders,
+      streakLeaders: streakLeaders.map((entry) => ({
+        ...entry,
+        ownerName: ownerMap.get(entry.ownerId)?.displayName ?? "Unknown",
+      })),
+      scoreLeaders: scoreLeaders.map((entry) => ({
+        ...entry,
+        ownerName: ownerMap.get(entry.ownerId)?.displayName ?? "Unknown",
+      })),
       highestScore: highestScore
         ? {
             ...highestScore,
-            ownerName: ownerMap.get(highestScore.ownerId)?.displayName ?? "Unknown",
+            ownerName:
+              ownerMap.get(highestScore.ownerId)?.displayName ?? "Unknown",
           }
         : null,
     },
@@ -152,6 +182,34 @@ export async function getLeagueRecords(): Promise<{
     }
   }
 
+  if (highestWeekly) {
+    const tiedScores = uniqueHighestWeeklyScores(matchupResults);
+    highestWeekly.entry = {
+      label: tiedScores.map((entry) => ownerName(entry.ownerId)).join(", "),
+      value: `${highestWeekly.score.toFixed(2)} pts`,
+      detail:
+        tiedScores.length === 1
+          ? `Week ${tiedScores[0].weekNumber}, ${tiedScores[0].seasonYear}`
+          : tiedScores
+              .map(
+                (entry) =>
+                  `${ownerName(entry.ownerId)} — Week ${entry.weekNumber}, ${entry.seasonYear}`,
+              )
+              .join("; "),
+      links:
+        tiedScores.length > 1
+          ? tiedScores.map((entry) => ({
+              label: ownerName(entry.ownerId),
+              href: `/owners/${entry.ownerId}`,
+            }))
+          : undefined,
+      href:
+        tiedScores.length === 1
+          ? `/owners/${tiedScores[0].ownerId}`
+          : undefined,
+    };
+  }
+
   for (const matchup of matchups) {
     const margin = Math.abs(matchup.homeScore - matchup.awayScore);
     const label = matchupLabel(matchup.homeTeam, matchup.awayTeam);
@@ -162,18 +220,41 @@ export async function getLeagueRecords(): Promise<{
     if (!blowout || margin > parseFloat(blowout.value)) blowout = entry;
   }
 
-  const mostPoints = [...teams].sort((a, b) => b.pointsFor - a.pointsFor)[0];
-  const mostAgainst = [...teams].sort((a, b) => b.pointsAgainst - a.pointsAgainst)[0];
-  const bestRecord = [...teams].sort((a, b) => {
-    const aPct = a.wins / Math.max(a.wins + a.losses, 1);
-    const bPct = b.wins / Math.max(b.wins + b.losses, 1);
-    return bPct - aPct || b.wins - a.wins;
-  })[0];
-  const worstRecord = [...teams].sort((a, b) => {
+  const mostPointsLeaders = getTopTied(teams, (team) => team.pointsFor);
+  const mostAgainstLeaders = getTopTied(teams, (team) => team.pointsAgainst);
+
+  const worstRecordSorted = [...teams].sort((a, b) => {
     const aPct = a.wins / Math.max(a.wins + a.losses, 1);
     const bPct = b.wins / Math.max(b.wins + b.losses, 1);
     return aPct - bPct || a.losses - b.losses;
-  })[0];
+  });
+  const worstWinPct =
+    worstRecordSorted.length > 0
+      ? worstRecordSorted[0].wins /
+        Math.max(
+          worstRecordSorted[0].wins + worstRecordSorted[0].losses,
+          1,
+        )
+      : 0;
+  const worstRecordLeadersFixed = worstRecordSorted.filter((team) => {
+    const pct = team.wins / Math.max(team.wins + team.losses, 1);
+    return pct === worstWinPct;
+  });
+
+  const bestRecordSorted = [...teams].sort((a, b) => {
+    const aPct = a.wins / Math.max(a.wins + a.losses, 1);
+    const bPct = b.wins / Math.max(b.wins + b.losses, 1);
+    return bPct - aPct || b.wins - a.wins;
+  });
+  const bestWinPct =
+    bestRecordSorted.length > 0
+      ? bestRecordSorted[0].wins /
+        Math.max(bestRecordSorted[0].wins + bestRecordSorted[0].losses, 1)
+      : 0;
+  const bestRecordLeadersFixed = bestRecordSorted.filter((team) => {
+    const pct = team.wins / Math.max(team.wins + team.losses, 1);
+    return pct === bestWinPct;
+  });
 
   const draftValues = await Promise.all(
     draftPicks.map(async (pick) => {
@@ -196,12 +277,21 @@ export async function getLeagueRecords(): Promise<{
     .filter((entry) => entry.pick.round >= 5)
     .sort((a, b) => a.seasonPoints - b.seasonPoints)[0];
 
-  const mostChamps = [...careerStats].sort((a, b) => b.championships - a.championships)[0];
-  const mostWins = [...careerStats].sort((a, b) => b.wins - a.wins)[0];
-  const bestWinPct = [...careerStats].sort((a, b) => b.winPercentage - a.winPercentage)[0];
-  const mostPlayoffs = [...careerStats].sort(
-    (a, b) => b.playoffAppearances - a.playoffAppearances,
-  )[0];
+  const championshipLeaders = getTopTied(
+    careerStats,
+    (owner) => owner.championships,
+  ).filter((owner) => owner.championships > 0);
+  const winsLeaders = getTopTied(careerStats, (owner) => owner.wins).filter(
+    (owner) => owner.wins > 0,
+  );
+  const winPctLeaders = getTopTied(
+    careerStats,
+    (owner) => owner.winPercentage,
+  ).filter((owner) => owner.seasonsPlayed > 0);
+  const playoffLeaders = getTopTied(
+    careerStats,
+    (owner) => owner.playoffAppearances,
+  ).filter((owner) => owner.playoffAppearances > 0);
 
   return {
     weekly: [
@@ -212,51 +302,88 @@ export async function getLeagueRecords(): Promise<{
     ],
     season: [
       {
-        label: mostPoints ? ownerLabel(mostPoints.owner) : "N/A",
-        value: `${mostPoints?.pointsFor.toFixed(2) ?? "—"} PF`,
-        detail: mostPoints ? String(mostPoints.season.year) : undefined,
+        label:
+          mostPointsLeaders.length > 0
+            ? mostPointsLeaders.map((team) => ownerLabel(team.owner)).join(", ")
+            : "N/A",
+        value:
+          mostPointsLeaders.length > 0
+            ? `${mostPointsLeaders[0].pointsFor.toFixed(2)} PF`
+            : "—",
+        detail:
+          mostPointsLeaders.length > 0
+            ? mostPointsLeaders
+                .map((team) => `${ownerLabel(team.owner)} (${team.season.year})`)
+                .join(", ")
+            : undefined,
       },
       {
-        label: mostAgainst ? ownerLabel(mostAgainst.owner) : "N/A",
-        value: `${mostAgainst?.pointsAgainst.toFixed(2) ?? "—"} PA`,
-        detail: mostAgainst ? String(mostAgainst.season.year) : undefined,
+        label:
+          mostAgainstLeaders.length > 0
+            ? mostAgainstLeaders.map((team) => ownerLabel(team.owner)).join(", ")
+            : "N/A",
+        value:
+          mostAgainstLeaders.length > 0
+            ? `${mostAgainstLeaders[0].pointsAgainst.toFixed(2)} PA`
+            : "—",
+        detail:
+          mostAgainstLeaders.length > 0
+            ? mostAgainstLeaders
+                .map((team) => `${ownerLabel(team.owner)} (${team.season.year})`)
+                .join(", ")
+            : undefined,
       },
       {
-        label: bestRecord ? ownerLabel(bestRecord.owner) : "N/A",
-        value: bestRecord
-          ? formatRecord(bestRecord.wins, bestRecord.losses, bestRecord.ties)
+        label:
+          bestRecordLeadersFixed.length > 0
+            ? bestRecordLeadersFixed
+                .map((team) => ownerLabel(team.owner))
+                .join(", ")
+            : "N/A",
+        value: bestRecordLeadersFixed[0]
+          ? formatRecord(
+              bestRecordLeadersFixed[0].wins,
+              bestRecordLeadersFixed[0].losses,
+              bestRecordLeadersFixed[0].ties,
+            )
           : "—",
-        detail: bestRecord ? String(bestRecord.season.year) : undefined,
+        detail: bestRecordLeadersFixed[0]
+          ? String(bestRecordLeadersFixed[0].season.year)
+          : undefined,
       },
       {
-        label: worstRecord ? ownerLabel(worstRecord.owner) : "N/A",
-        value: worstRecord
-          ? formatRecord(worstRecord.wins, worstRecord.losses, worstRecord.ties)
+        label:
+          worstRecordLeadersFixed.length > 0
+            ? worstRecordLeadersFixed
+                .map((team) => ownerLabel(team.owner))
+                .join(", ")
+            : "N/A",
+        value: worstRecordLeadersFixed[0]
+          ? formatRecord(
+              worstRecordLeadersFixed[0].wins,
+              worstRecordLeadersFixed[0].losses,
+              worstRecordLeadersFixed[0].ties,
+            )
           : "—",
-        detail: worstRecord ? String(worstRecord.season.year) : undefined,
+        detail: worstRecordLeadersFixed[0]
+          ? String(worstRecordLeadersFixed[0].season.year)
+          : undefined,
       },
     ],
     career: [
-      {
-        label: mostChamps?.displayName ?? "N/A",
-        value: `${mostChamps?.championships ?? 0} titles`,
-        href: mostChamps ? `/owners/${mostChamps.ownerId}` : undefined,
-      },
-      {
-        label: mostWins?.displayName ?? "N/A",
-        value: `${mostWins?.wins ?? 0} wins`,
-        href: mostWins ? `/owners/${mostWins.ownerId}` : undefined,
-      },
-      {
-        label: bestWinPct?.displayName ?? "N/A",
-        value: `${((bestWinPct?.winPercentage ?? 0) * 100).toFixed(1)}%`,
-        href: bestWinPct ? `/owners/${bestWinPct.ownerId}` : undefined,
-      },
-      {
-        label: mostPlayoffs?.displayName ?? "N/A",
-        value: `${mostPlayoffs?.playoffAppearances ?? 0} appearances`,
-        href: mostPlayoffs ? `/owners/${mostPlayoffs.ownerId}` : undefined,
-      },
+      tiedOwnerRecord(
+        championshipLeaders,
+        `${championshipLeaders[0]?.championships ?? 0} titles`,
+      ),
+      tiedOwnerRecord(winsLeaders, `${winsLeaders[0]?.wins ?? 0} wins`),
+      tiedOwnerRecord(
+        winPctLeaders,
+        `${((winPctLeaders[0]?.winPercentage ?? 0) * 100).toFixed(1)}%`,
+      ),
+      tiedOwnerRecord(
+        playoffLeaders,
+        `${playoffLeaders[0]?.playoffAppearances ?? 0} appearances`,
+      ),
     ],
     draft: [
       {

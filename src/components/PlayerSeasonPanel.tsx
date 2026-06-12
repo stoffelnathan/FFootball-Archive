@@ -11,6 +11,7 @@ import {
 
 type WeeklyLine = {
   weekNumber: number;
+  weekLabel: string;
   fantasyPoints: number;
   ownerName: string;
   stats: PlayerStatMap;
@@ -20,6 +21,8 @@ type SeasonBundle = {
   ownerName: string;
   totals: PlayerStatMap;
   weekly: WeeklyLine[];
+  posRank: number | null;
+  posRankLabel: string;
 };
 
 export function PlayerSeasonPanel({
@@ -47,6 +50,10 @@ export function PlayerSeasonPanel({
       STAT_LABELS[key] ?? key,
       formatStatValue(key, data.totals[key] ?? 0),
     ]);
+
+  if (data.posRankLabel !== "—") {
+    statRows.unshift(["Pos Rank", data.posRankLabel]);
+  }
 
   const weeklyStatKeys = useMemo(
     () =>
@@ -84,6 +91,9 @@ export function PlayerSeasonPanel({
         <span className="text-sm text-zinc-500">
           Rostered by {data.ownerName}
         </span>
+        {data.posRankLabel !== "—" ? (
+          <span className="text-sm text-emerald-300">{data.posRankLabel}</span>
+        ) : null}
       </div>
 
       <section className="space-y-4">
@@ -105,7 +115,7 @@ export function PlayerSeasonPanel({
         <DataTable
           headers={weeklyHeaders}
           rows={data.weekly.map((line) => [
-            line.weekNumber,
+            line.weekLabel,
             line.ownerName,
             line.fantasyPoints.toFixed(2),
             ...weeklyStatKeys.map((key) =>
