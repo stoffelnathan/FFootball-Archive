@@ -36,7 +36,7 @@ export type MockDraftRoster = {
   TE: MockDraftPlayer[];
 };
 
-export type MockDraftPhase = "slot-select" | "drafting" | "recap";
+export type MockDraftPhase = "slot-select" | "timer-select" | "drafting" | "recap";
 
 export type MockDraftState = {
   phase: MockDraftPhase;

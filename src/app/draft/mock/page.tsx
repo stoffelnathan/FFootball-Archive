@@ -11,11 +11,11 @@ export default async function MockDraftPage() {
   return (
     <PageShell
       title="Mock Draft"
-      subtitle={`12-team snake draft ranked for our league settings (${seasonYear} scoring)`}
+      subtitle="June 2026 Underdog ADP (half-PPR → full PPR + TE premium)"
       wide
-      className="lg:flex lg:min-h-[calc(100dvh-4.5rem)] lg:flex-col lg:py-6"
+      className="lg:py-4"
     >
-      <div className="mb-4 shrink-0">
+      <div className="mb-3 shrink-0">
         <Link
           href="/draft"
           className="text-sm text-zinc-400 transition hover:text-emerald-300"

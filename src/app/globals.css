@@ -20,3 +20,37 @@ body {
 a {
   color: inherit;
 }
+
+/* Subtle scrollbar on the main page */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(113, 113, 122, 0.28) transparent;
+}
+
+html::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb {
+  background: rgba(113, 113, 122, 0.28);
+  border-radius: 9999px;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.45);
+}
+
+/* Hide scrollbars inside nested panels while keeping scroll behavior */
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}

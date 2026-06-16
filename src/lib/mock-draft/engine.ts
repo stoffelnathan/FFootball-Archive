@@ -3,13 +3,22 @@ import {
   MOCK_DRAFT,
   type SkillPosition,
 } from "@/lib/league-settings";
-import { rosterMinimumsFilled } from "@/lib/mock-draft/rankings";
+import { normalizePlayerName } from "@/lib/mock-draft/underdog-baseline";
 import type {
   MockDraftPick,
   MockDraftPlayer,
   MockDraftRoster,
   MockDraftTeam,
 } from "@/lib/mock-draft/types";
+
+export function rosterMinimumsFilled(roster: MockDraftRoster): boolean {
+  return (
+    roster.QB.length >= LEAGUE_ROSTER.QB &&
+    roster.RB.length >= LEAGUE_ROSTER.RB &&
+    roster.WR.length >= LEAGUE_ROSTER.WR &&
+    roster.TE.length >= LEAGUE_ROSTER.TE
+  );
+}
 
 export function buildTeams(userSlot: number): MockDraftTeam[] {
   return Array.from({ length: MOCK_DRAFT.teamCount }, (_, index) => {
@@ -59,6 +68,103 @@ export function rosterFromPicks(
     roster[pick.player.position].push(pick.player);
   }
   return roster;
+}
+
+export type DraftOrderRosterSlot = {
+  label: string;
+  player: MockDraftPlayer | null;
+  pick: MockDraftPick | null;
+};
+
+export type DraftOrderRosterLayout = {
+  starters: DraftOrderRosterSlot[];
+  bench: DraftOrderRosterSlot[];
+};
+
+/** Assign picks to roster slots in draft order (QB, RB×2, WR×2, TE, FLEX×2, then bench). */
+export function draftOrderRosterLayout(
+  teamSlot: number,
+  picks: MockDraftPick[],
+): DraftOrderRosterLayout {
+  const teamPicks = picks
+    .filter((pick) => pick.teamSlot === teamSlot)
+    .sort((a, b) => a.overallPick - b.overallPick);
+
+  const starterLabels = [
+    "QB",
+    "RB",
+    "RB",
+    "WR",
+    "WR",
+    "TE",
+    "FLEX",
+    "FLEX",
+  ] as const;
+
+  const starters: DraftOrderRosterSlot[] = starterLabels.map((label) => ({
+    label,
+    player: null,
+    pick: null,
+  }));
+
+  const bench: DraftOrderRosterSlot[] = [];
+  let rbFilled = 0;
+  let wrFilled = 0;
+  let flexFilled = 0;
+
+  for (const pick of teamPicks) {
+    const { position } = pick.player;
+
+    if (position === "QB") {
+      const slot = starters[0]!;
+      if (!slot.player) {
+        slot.player = pick.player;
+        slot.pick = pick;
+        continue;
+      }
+    }
+
+    if (position === "RB" && rbFilled < LEAGUE_ROSTER.RB) {
+      const slot = starters[1 + rbFilled]!;
+      slot.player = pick.player;
+      slot.pick = pick;
+      rbFilled += 1;
+      continue;
+    }
+
+    if (position === "WR" && wrFilled < LEAGUE_ROSTER.WR) {
+      const slot = starters[3 + wrFilled]!;
+      slot.player = pick.player;
+      slot.pick = pick;
+      wrFilled += 1;
+      continue;
+    }
+
+    if (position === "TE") {
+      const slot = starters[5]!;
+      if (!slot.player) {
+        slot.player = pick.player;
+        slot.pick = pick;
+        continue;
+      }
+    }
+
+    if (position !== "QB" && flexFilled < LEAGUE_ROSTER.FLEX) {
+      const slot = starters[6 + flexFilled]!;
+      slot.player = pick.player;
+      slot.pick = pick;
+      flexFilled += 1;
+      continue;
+    }
+
+    bench.push({
+      label: "BN",
+      player: pick.player,
+      pick,
+    });
+  }
+
+  return { starters, bench };
 }
 
 function countByPosition(roster: MockDraftRoster): Record<SkillPosition, number> {
@@ -139,34 +245,117 @@ function positionalNeed(
   return need;
 }
 
+/** Round-one upset tendencies — multipliers on top of rank-based weight. */
+const ROUND1_NAME_BOOSTS: Record<string, number> = {
+  "bijan robinson": 1,
+  "jahmyr gibbs": 1.5,
+  "jamarr chase": 1.25,
+  "puka nacua": 1.2,
+  "jaxon smith njigba": 0.95,
+};
+
+function weightedRandomPick(
+  weighted: Array<{ player: MockDraftPlayer; weight: number }>,
+): MockDraftPlayer {
+  const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  if (total <= 0) return weighted[0]!.player;
+
+  let roll = Math.random() * total;
+  for (const entry of weighted) {
+    roll -= entry.weight;
+    if (roll <= 0) return entry.player;
+  }
+
+  return weighted[weighted.length - 1]!.player;
+}
+
+function buildCandidates(
+  sorted: MockDraftPlayer[],
+  round: number,
+): MockDraftPlayer[] {
+  const poolSize = round === 1 ? 4 : 3;
+  const candidates = sorted.slice(0, Math.min(poolSize, sorted.length));
+
+  const bestTe = sorted.find((player) => player.position === "TE");
+  if (
+    bestTe &&
+    bestTe.rank >= 5 &&
+    bestTe.rank <= 10 &&
+    round <= 4 &&
+    !candidates.some((player) => player.id === bestTe.id)
+  ) {
+    candidates.push(bestTe);
+  }
+
+  return candidates;
+}
+
+function candidateWeight(
+  player: MockDraftPlayer,
+  roster: MockDraftRoster,
+  round: number,
+  bestAvailableRank: number,
+): number {
+  const rankGap = player.rank - bestAvailableRank;
+  let weight = 0.58 ** rankGap;
+
+  if (round === 1) {
+    const boost = ROUND1_NAME_BOOSTS[normalizePlayerName(player.name)];
+    if (boost != null) weight *= boost;
+  }
+
+  if (player.position === "TE" && round <= 4) {
+    const counts = countByPosition(roster);
+    if (counts.TE === 0 && player.rank > 1) {
+      const key = normalizePlayerName(player.name);
+      if (key.includes("mcbride")) weight *= 1.45;
+      else if (key.includes("bowers")) weight *= 1.2;
+      else if (player.rank <= 12) weight *= 1.1;
+    }
+  }
+
+  const need = positionalNeed(player.position, roster, round);
+  weight *= 1 + Math.max(-0.12, Math.min(0.2, need * 0.006));
+
+  return Math.max(weight, 0.001);
+}
+
 /**
- * CPU selects from the top five available players by draft value, weighted
- * by roster need with light randomness so picks aren't identical every time.
+ * CPU drafts with weighted randomness among the best available players.
+ * Mostly follows board rank, with realistic round-one variation and early
+ * TE premium urgency so elite TEs do not slide to the end of the first round.
  */
 export function cpuSelectPlayer(
   available: MockDraftPlayer[],
   roster: MockDraftRoster,
   round: number,
 ): MockDraftPlayer {
-  const sorted = [...available].sort(
-    (a, b) => b.draftValue - a.draftValue || b.leaguePoints - a.leaguePoints,
-  );
-  const candidates = sorted.slice(0, 5);
+  const sorted = [...available].sort((a, b) => a.rank - b.rank);
+  if (sorted.length === 0) {
+    throw new Error("No available players for CPU pick");
+  }
 
-  let best = candidates[0]!;
-  let bestScore = Number.NEGATIVE_INFINITY;
-
-  for (const candidate of candidates) {
-    const need = positionalNeed(candidate.position, roster, round);
-    const noise = Math.random() * 4;
-    const score = candidate.draftValue + need + noise;
-    if (score > bestScore) {
-      bestScore = score;
-      best = candidate;
+  if (!rosterMinimumsFilled(roster) && round >= MOCK_DRAFT.rounds - 2) {
+    const counts = countByPosition(roster);
+    for (const position of ["QB", "RB", "WR", "TE"] as const) {
+      const minimum = LEAGUE_ROSTER[position];
+      if (counts[position] >= minimum) continue;
+      const bestAtPosition = sorted.find(
+        (player) => player.position === position,
+      );
+      if (bestAtPosition) return bestAtPosition;
     }
   }
 
-  return best;
+  const candidates = buildCandidates(sorted, round);
+  const bestAvailableRank = sorted[0]!.rank;
+
+  const weighted = candidates.map((player) => ({
+    player,
+    weight: candidateWeight(player, roster, round, bestAvailableRank),
+  }));
+
+  return weightedRandomPick(weighted);
 }
 
 export function availablePlayers(

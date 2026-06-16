@@ -19,19 +19,15 @@ export async function getMockDraftPlayerPool(): Promise<{
     select: { id: true, year: true },
   });
 
+  const seasonYear = latestSeason?.year ?? new Date().getFullYear();
+
   if (!latestSeason) {
-    return { seasonYear: new Date().getFullYear(), players: [] };
+    return { seasonYear, players: [] };
   }
 
   const rows = await prisma.player.findMany({
     where: {
       position: { in: ["QB", "RB", "WR", "TE"] },
-      seasonStats: {
-        some: {
-          seasonId: latestSeason.id,
-          fantasyPointsTotal: { gt: 0 },
-        },
-      },
     },
     include: {
       seasonStats: {
@@ -39,29 +35,23 @@ export async function getMockDraftPlayerPool(): Promise<{
         take: 1,
       },
     },
-    orderBy: { name: "asc" },
   });
 
-  const rawPlayers = rows
-    .map((player) => {
-      const seasonStat = player.seasonStats[0];
-      const stats = statsFromJson(seasonStat?.stats);
-      return {
-        id: player.id,
-        espnPlayerId: player.espnPlayerId,
-        name: player.name,
-        position: player.position,
-        nflTeam: player.nflTeam,
-        leaguePoints: seasonStat?.fantasyPointsTotal ?? 0,
-        receptions: stats.receptions ?? 0,
-      };
-    })
-    .filter((player) => player.leaguePoints > 0);
+  const poolPlayers = rows.map((player) => {
+    const seasonStat = player.seasonStats[0];
+    const stats = statsFromJson(seasonStat?.stats);
+    return {
+      id: player.id,
+      espnPlayerId: player.espnPlayerId,
+      name: player.name,
+      position: player.position,
+      nflTeam: player.nflTeam,
+      leaguePoints: seasonStat?.fantasyPointsTotal ?? 0,
+      receptions: stats.receptions ?? 0,
+    };
+  });
 
-  const players = buildMockDraftRankings(rawPlayers);
+  const players = buildMockDraftRankings(poolPlayers);
 
-  return {
-    seasonYear: latestSeason.year,
-    players,
-  };
+  return { seasonYear, players };
 }

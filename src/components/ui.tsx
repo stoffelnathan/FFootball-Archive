@@ -15,7 +15,7 @@ export function PageShell({
 }) {
   return (
     <div
-      className={`mx-auto px-4 py-8 ${wide ? "max-w-[1600px]" : "max-w-6xl"} ${className ?? ""}`}
+      className={`mx-auto flex min-h-0 flex-col px-4 py-8 ${wide ? "max-w-[1600px]" : "max-w-6xl"} ${className ?? ""}`}
     >
       <div className="mb-6 shrink-0 lg:mb-4">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">

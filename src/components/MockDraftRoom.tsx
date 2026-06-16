@@ -5,11 +5,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DraftBoard } from "@/components/DraftBoard";
 import { positionStyle } from "@/lib/position-colors";
 import { playerHref } from "@/lib/player-url";
-import { MOCK_DRAFT, STARTER_COUNT } from "@/lib/league-settings";
+import {
+  MOCK_DRAFT,
+  PICK_TIMER_OPTIONS,
+  STARTER_COUNT,
+} from "@/lib/league-settings";
 import {
   availablePlayers,
   buildTeams,
   cpuSelectPlayer,
+  draftOrderRosterLayout,
   isDraftComplete,
   optimalLineupPoints,
   rosterFromPicks,
@@ -65,18 +70,13 @@ function buildBoardColumns(
   return { columns, rounds };
 }
 
-function SlotPicker({
-  onSelect,
-}: {
-  onSelect: (slot: number) => void;
-}) {
+function SlotPicker({ onSelect }: { onSelect: (slot: number) => void }) {
   return (
     <div className="mx-auto max-w-3xl">
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
         <h2 className="text-xl font-semibold text-zinc-100">Choose your draft slot</h2>
         <p className="mt-2 text-sm text-zinc-400">
-          12-team snake draft · {MOCK_DRAFT.rounds} rounds ·{" "}
-          {MOCK_DRAFT.pickTimerSeconds / 60} minutes per pick · 1 QB / 2 RB / 2 WR /
+          12-team snake draft · {MOCK_DRAFT.rounds} rounds · 1 QB / 2 RB / 2 WR /
           2 FLEX / 1 TE · TE premium (1.5 PPR)
         </p>
         <div className="mt-6 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
@@ -104,60 +104,265 @@ function SlotPicker({
   );
 }
 
-function PlayerPool({
-  players,
+function TimerSetup({
+  slot,
+  onBack,
+  onStart,
+}: {
+  slot: number;
+  onBack: () => void;
+  onStart: (seconds: number | null) => void;
+}) {
+  const [selected, setSelected] = useState<number | null>(
+    MOCK_DRAFT.defaultPickTimerSeconds,
+  );
+
+  return (
+    <div className="mx-auto max-w-lg">
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6">
+        <p className="text-xs uppercase tracking-wide text-zinc-500">Draft slot</p>
+        <h2 className="mt-1 text-2xl font-semibold text-zinc-100">#{slot}</h2>
+        <label
+          htmlFor="pick-timer"
+          className="mt-6 block text-sm font-medium text-zinc-300"
+        >
+          Time per pick
+        </label>
+        <select
+          id="pick-timer"
+          value={selected ?? "unlimited"}
+          onChange={(event) => {
+            const value = event.target.value;
+            setSelected(value === "unlimited" ? null : Number(value));
+          }}
+          className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100"
+        >
+          {PICK_TIMER_OPTIONS.map((option) => (
+            <option
+              key={option.label}
+              value={option.value ?? "unlimited"}
+            >
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => onStart(selected)}
+            className="rounded-lg border border-emerald-600 bg-emerald-600/10 px-4 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-600/20"
+          >
+            Start draft
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-600"
+          >
+            Change slot
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type SidePanelTab = "available" | "team";
+
+function teamLabel(team: { slot: number; name: string; isUser: boolean }): string {
+  return team.isUser ? `You (#${team.slot})` : `${team.name} (#${team.slot})`;
+}
+
+function RosterSlotRow({
+  label,
+  player,
+  pick,
+}: {
+  label: string;
+  player: MockDraftPlayer | null;
+  pick: MockDraftPick | null;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${
+        player ? "border-zinc-800 bg-zinc-900/40" : "border-dashed border-zinc-800/80"
+      }`}
+    >
+      <span className="w-10 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+        {label}
+      </span>
+      {player && pick ? (
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-zinc-100">
+            <Link
+              href={playerHref(player.espnPlayerId)}
+              className="hover:text-emerald-300 hover:underline"
+            >
+              {player.name}
+            </Link>
+          </p>
+          <p className="truncate text-[11px] text-zinc-500">
+            R{pick.round} · #{pick.overallPick}
+            {player.nflTeam ? ` · ${player.nflTeam}` : ""}
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-zinc-600">Empty</p>
+      )}
+      {player ? (
+        <span
+          className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${positionStyle(player.position)}`}
+        >
+          {player.position}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function DraftSidePanel({
+  teams,
+  picks,
+  availablePlayers,
+  panelTab,
+  onPanelTabChange,
+  viewTeamSlot,
+  onViewTeamSlotChange,
   onDraft,
   canDraft,
+  onClose,
 }: {
-  players: MockDraftPlayer[];
+  teams: ReturnType<typeof buildTeams>;
+  picks: MockDraftPick[];
+  availablePlayers: MockDraftPlayer[];
+  panelTab: SidePanelTab;
+  onPanelTabChange: (tab: SidePanelTab) => void;
+  viewTeamSlot: number;
+  onViewTeamSlotChange: (slot: number) => void;
   onDraft: (player: MockDraftPlayer) => void;
   canDraft: boolean;
+  onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [position, setPosition] = useState<string>("ALL");
 
-  const filtered = useMemo(() => {
-    return players.filter((player) => {
+  const filteredAvailable = useMemo(() => {
+    return availablePlayers.filter((player) => {
       if (position !== "ALL" && player.position !== position) return false;
       if (!query.trim()) return true;
       return player.name.toLowerCase().includes(query.trim().toLowerCase());
     });
-  }, [players, position, query]);
+  }, [availablePlayers, position, query]);
+
+  const rosterLayout = useMemo(
+    () => draftOrderRosterLayout(viewTeamSlot, picks),
+    [viewTeamSlot, picks],
+  );
+
+  const selectedTeam = teams.find((team) => team.slot === viewTeamSlot);
+  const teamPickCount = picks.filter((pick) => pick.teamSlot === viewTeamSlot).length;
 
   return (
-    <div className="flex min-h-0 flex-col rounded-2xl border border-zinc-800 bg-zinc-900/60">
-      <div className="border-b border-zinc-800 p-4">
-        <h3 className="font-medium text-zinc-100">Available players</h3>
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search players…"
-          className="mt-3 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500"
-        />
-        <div className="mt-3 flex flex-wrap gap-2">
-          {["ALL", "QB", "RB", "WR", "TE"].map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setPosition(option)}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                position === option
-                  ? "border-emerald-600 bg-emerald-600/10 text-emerald-300"
-                  : "border-zinc-700 text-zinc-400 hover:border-zinc-600"
-              }`}
-            >
-              {option}
-            </button>
-          ))}
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-950">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-zinc-800 px-3 py-2 md:px-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium text-zinc-100 md:text-base">
+              {panelTab === "available" ? "Available players" : "Team roster"}
+            </h3>
+            <p className="text-[11px] text-zinc-500 md:text-xs">
+              {panelTab === "available"
+                ? canDraft
+                  ? "Tap a player to draft"
+                  : "Wait for your pick"
+                : selectedTeam
+                  ? `${teamPickCount} pick${teamPickCount === 1 ? "" : "s"} · ${teamLabel(selectedTeam)}`
+                  : "Drafted players"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-400 transition hover:border-zinc-600 hover:text-zinc-200 md:hidden"
+          >
+            Close
+          </button>
         </div>
+        <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/50 p-1">
+          <button
+            type="button"
+            onClick={() => onPanelTabChange("available")}
+            className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              panelTab === "available"
+                ? "bg-zinc-800 text-emerald-300"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            Available
+          </button>
+          <button
+            type="button"
+            onClick={() => onPanelTabChange("team")}
+            className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              panelTab === "team"
+                ? "bg-zinc-800 text-emerald-300"
+                : "text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            Team
+          </button>
+        </div>
+        {panelTab === "team" ? (
+          <>
+            <label className="sr-only" htmlFor="side-panel-team">
+              Team
+            </label>
+            <select
+              id="side-panel-team"
+              value={viewTeamSlot}
+              onChange={(event) => onViewTeamSlotChange(Number(event.target.value))}
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100"
+            >
+              {teams.map((team) => (
+                <option key={team.slot} value={team.slot}>
+                  {teamLabel(team)}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {filtered.length === 0 ? (
-          <p className="p-4 text-sm text-zinc-500">No players match your filters.</p>
-        ) : (
-          <ul className="space-y-1">
-            {filtered.slice(0, 120).map((player) => (
+      {panelTab === "available" ? (
+        <div className="shrink-0 border-b border-zinc-800 px-3 py-2 md:px-4">
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search players…"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500 md:py-2"
+          />
+          <div className="mt-1.5 flex flex-wrap gap-1 md:mt-2 md:gap-1.5">
+            {["ALL", "QB", "RB", "WR", "TE"].map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setPosition(option)}
+                className={`rounded-full border px-2.5 py-0.5 text-[11px] ${
+                  position === option
+                    ? "border-emerald-600 bg-emerald-600/10 text-emerald-300"
+                    : "border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2 md:px-4 md:py-3">
+        {panelTab === "available" ? (
+          <ul className="flex flex-col gap-1.5">
+            {filteredAvailable.map((player) => (
               <li key={player.id}>
                 <button
                   type="button"
@@ -165,7 +370,7 @@ function PlayerPool({
                   onClick={() => onDraft(player)}
                   className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition ${
                     canDraft
-                      ? "border-zinc-800 hover:border-emerald-700/60 hover:bg-zinc-950/80"
+                      ? "border-zinc-800 hover:border-emerald-700/60 hover:bg-zinc-900/80"
                       : "cursor-not-allowed border-zinc-900 opacity-60"
                   }`}
                 >
@@ -173,7 +378,7 @@ function PlayerPool({
                     <p className="truncate text-sm font-medium text-zinc-100">
                       #{player.rank} {player.name}
                     </p>
-                    <p className="text-xs text-zinc-500">
+                    <p className="truncate text-xs text-zinc-500">
                       {player.posRankLabel}
                       {player.nflTeam ? ` · ${player.nflTeam}` : ""}
                     </p>
@@ -187,6 +392,47 @@ function PlayerPool({
               </li>
             ))}
           </ul>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Starters
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {rosterLayout.starters.map((slot, index) => (
+                  <li key={`${slot.label}-${index}`}>
+                    <RosterSlotRow
+                      label={slot.label}
+                      player={slot.player}
+                      pick={slot.pick}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                Bench
+              </p>
+              {rosterLayout.bench.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-zinc-800/80 px-3 py-4 text-center text-sm text-zinc-600">
+                  No bench players yet
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {rosterLayout.bench.map((slot, index) => (
+                    <li key={slot.pick?.overallPick ?? index}>
+                      <RosterSlotRow
+                        label={slot.label}
+                        player={slot.player}
+                        pick={slot.pick}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -352,11 +598,20 @@ export function MockDraftRoom({
 }) {
   const [phase, setPhase] = useState<MockDraftPhase>("slot-select");
   const [userSlot, setUserSlot] = useState<number | null>(null);
-  const [picks, setPicks] = useState<MockDraftPick[]>([]);
-  const [timerSeconds, setTimerSeconds] = useState<number>(
-    MOCK_DRAFT.pickTimerSeconds,
+  const [pickTimerLimit, setPickTimerLimit] = useState<number | null>(
+    MOCK_DRAFT.defaultPickTimerSeconds,
   );
+  const [timerSeconds, setTimerSeconds] = useState<number>(
+    MOCK_DRAFT.defaultPickTimerSeconds,
+  );
+  const [picks, setPicks] = useState<MockDraftPick[]>([]);
+  const [showPlayerOverlay, setShowPlayerOverlay] = useState(true);
+  const [mobilePane, setMobilePane] = useState<"board" | "players">("board");
+  const [boardFullscreen, setBoardFullscreen] = useState(false);
+  const [panelTab, setPanelTab] = useState<SidePanelTab>("available");
+  const [viewTeamSlot, setViewTeamSlot] = useState(1);
   const cpuRunningRef = useRef(false);
+  const boardContainerRef = useRef<HTMLDivElement>(null);
 
   const teams = useMemo(
     () => (userSlot ? buildTeams(userSlot) : []),
@@ -378,20 +633,27 @@ export function MockDraftRoom({
     [players, picks],
   );
 
-  const makePick = useCallback((player: MockDraftPlayer, teamSlot: number) => {
-    setPicks((previous) => {
-      const overallPick = previous.length + 1;
-      const pick: MockDraftPick = {
-        overallPick,
-        round: roundForPick(overallPick),
-        roundPick: roundPickNumber(overallPick),
-        teamSlot,
-        player,
-      };
-      return [...previous, pick];
-    });
-    setTimerSeconds(MOCK_DRAFT.pickTimerSeconds);
-  }, []);
+  const resetTimer = useCallback(() => {
+    setTimerSeconds(pickTimerLimit ?? MOCK_DRAFT.defaultPickTimerSeconds);
+  }, [pickTimerLimit]);
+
+  const makePick = useCallback(
+    (player: MockDraftPlayer, teamSlot: number) => {
+      setPicks((previous) => {
+        const overallPick = previous.length + 1;
+        const pick: MockDraftPick = {
+          overallPick,
+          round: roundForPick(overallPick),
+          roundPick: roundPickNumber(overallPick),
+          teamSlot,
+          player,
+        };
+        return [...previous, pick];
+      });
+      resetTimer();
+    },
+    [resetTimer],
+  );
 
   const runCpuPicks = useCallback(
     (startingLength: number, draftPicks: MockDraftPick[]) => {
@@ -412,7 +674,8 @@ export function MockDraftRoom({
 
         if (userSlot != null && nextSlot === userSlot) {
           cpuRunningRef.current = false;
-          setTimerSeconds(MOCK_DRAFT.pickTimerSeconds);
+          resetTimer();
+          setShowPlayerOverlay(true);
           return;
         }
 
@@ -447,7 +710,7 @@ export function MockDraftRoom({
         setPhase("recap");
       }
     },
-    [players, userSlot],
+    [players, userSlot, resetTimer],
   );
 
   useEffect(() => {
@@ -458,6 +721,7 @@ export function MockDraftRoom({
 
   useEffect(() => {
     if (phase !== "drafting" || !isUserTurn || isDraftComplete(picks)) return;
+    if (pickTimerLimit == null) return;
 
     if (timerSeconds <= 0) {
       const remaining = availablePlayers(players, picks);
@@ -475,19 +739,75 @@ export function MockDraftRoom({
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [phase, isUserTurn, timerSeconds, picks, players, userSlot, makePick]);
+  }, [
+    phase,
+    isUserTurn,
+    timerSeconds,
+    picks,
+    players,
+    userSlot,
+    makePick,
+    pickTimerLimit,
+  ]);
 
   useEffect(() => {
     if (phase !== "drafting" || isUserTurn || isDraftComplete(picks)) return;
     runCpuPicks(picks.length, picks);
   }, [phase, isUserTurn, picks, runCpuPicks]);
 
+  useEffect(() => {
+    if (!isUserTurn) {
+      setMobilePane("board");
+      return;
+    }
+    setShowPlayerOverlay(true);
+    setMobilePane("players");
+    setPanelTab("available");
+  }, [isUserTurn]);
+
+  useEffect(() => {
+    if (phase !== "drafting") return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [phase]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setBoardFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const toggleBoardFullscreen = async () => {
+    const node = boardContainerRef.current;
+    if (!node) return;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await node.requestFullscreen();
+    }
+  };
+
+  const showSidePanel = showPlayerOverlay && !boardFullscreen;
+
   const handleSlotSelect = (slot: number) => {
     setUserSlot(slot);
+    setViewTeamSlot(slot);
+    setPhase("timer-select");
+  };
+
+  const handleTimerStart = (seconds: number | null) => {
+    setPickTimerLimit(seconds);
+    setTimerSeconds(seconds ?? MOCK_DRAFT.defaultPickTimerSeconds);
     setPicks([]);
-    setTimerSeconds(MOCK_DRAFT.pickTimerSeconds);
     setPhase("drafting");
     cpuRunningRef.current = false;
+    setShowPlayerOverlay(true);
   };
 
   const handleUserDraft = (player: MockDraftPlayer) => {
@@ -499,12 +819,19 @@ export function MockDraftRoom({
     setPhase("slot-select");
     setUserSlot(null);
     setPicks([]);
-    setTimerSeconds(MOCK_DRAFT.pickTimerSeconds);
+    setPickTimerLimit(MOCK_DRAFT.defaultPickTimerSeconds);
+    setTimerSeconds(MOCK_DRAFT.defaultPickTimerSeconds);
     cpuRunningRef.current = false;
+    setShowPlayerOverlay(true);
+    setPanelTab("available");
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    }
   };
 
   const board = useMemo(
-    () => (teams.length ? buildBoardColumns(teams, picks) : { columns: [], rounds: [] }),
+    () =>
+      teams.length ? buildBoardColumns(teams, picks) : { columns: [], rounds: [] },
     [teams, picks],
   );
 
@@ -518,6 +845,19 @@ export function MockDraftRoom({
 
   if (phase === "slot-select") {
     return <SlotPicker onSelect={handleSlotSelect} />;
+  }
+
+  if (phase === "timer-select" && userSlot != null) {
+    return (
+      <TimerSetup
+        slot={userSlot}
+        onBack={() => {
+          setUserSlot(null);
+          setPhase("slot-select");
+        }}
+        onStart={handleTimerStart}
+      />
+    );
   }
 
   if (phase === "recap" && userSlot != null) {
@@ -535,47 +875,153 @@ export function MockDraftRoom({
   }
 
   const currentTeam = teams.find((team) => team.slot === currentTeamSlot);
+  const timerLabel =
+    isUserTurn && pickTimerLimit != null
+      ? formatTimer(timerSeconds)
+      : isUserTurn
+        ? "∞"
+        : "CPU";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 lg:gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-zinc-500">On the clock</p>
-          <p className="text-lg font-semibold text-zinc-100">
+    <div className="fixed inset-x-0 bottom-0 top-[8.75rem] z-30 flex flex-col bg-zinc-950 lg:top-[5.5rem]">
+      <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-2.5">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+            On the clock
+          </p>
+          <p className="truncate text-base font-semibold text-zinc-100">
             {currentTeam?.isUser ? "Your pick" : currentTeam?.name ?? "—"}
           </p>
-          <p className="text-sm text-zinc-400">
-            Round {roundForPick(currentOverallPick)} · Pick #{currentOverallPick} of{" "}
+          <p className="text-xs text-zinc-400">
+            Round {roundForPick(currentOverallPick)} · #{currentOverallPick}/
             {totalPicks()}
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-xs uppercase tracking-wide text-zinc-500">Timer</p>
-          <p
-            className={`text-3xl font-semibold tabular-nums ${
-              isUserTurn && timerSeconds <= 15
-                ? "text-red-400"
-                : isUserTurn
-                  ? "text-emerald-300"
-                  : "text-zinc-500"
+        <div className="flex items-center gap-2">
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+              Timer
+            </p>
+            <p
+              className={`text-2xl font-semibold tabular-nums ${
+                isUserTurn && pickTimerLimit != null && timerSeconds <= 15
+                  ? "text-red-400"
+                  : isUserTurn
+                    ? "text-emerald-300"
+                    : "text-zinc-500"
+              }`}
+            >
+              {timerLabel}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowPlayerOverlay((open) => {
+                const next = !open;
+                if (next) setMobilePane("players");
+                return next;
+              });
+            }}
+            className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+              showPlayerOverlay
+                ? "border-emerald-600 bg-emerald-600/10 text-emerald-300"
+                : "border-zinc-700 text-zinc-300 hover:border-zinc-600"
             }`}
           >
-            {isUserTurn ? formatTimer(timerSeconds) : "CPU"}
-          </p>
+            {showPlayerOverlay ? "Hide players" : "Show players"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void toggleBoardFullscreen()}
+            className="rounded-lg border border-zinc-700 px-3 py-2 text-xs text-zinc-300 transition hover:border-zinc-600"
+          >
+            {boardFullscreen ? "Exit fullscreen" : "Fullscreen board"}
+          </button>
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="min-h-0 lg:flex lg:flex-col">
-          <DraftBoard columns={board.columns} rounds={board.rounds} />
+      {showSidePanel ? (
+        <div className="flex shrink-0 gap-1 border-b border-zinc-800 px-3 py-2 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobilePane("board")}
+            className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+              mobilePane === "board"
+                ? "border-emerald-600 bg-emerald-600/10 text-emerald-300"
+                : "border-zinc-700 text-zinc-400"
+            }`}
+          >
+            Draft board
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane("players")}
+            className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+              mobilePane === "players"
+                ? "border-emerald-600 bg-emerald-600/10 text-emerald-300"
+                : "border-zinc-700 text-zinc-400"
+            }`}
+          >
+            Players
+          </button>
         </div>
-        <div className="min-h-[24rem] lg:min-h-0 lg:h-full">
-          <PlayerPool
-            players={pool}
-            onDraft={handleUserDraft}
-            canDraft={Boolean(isUserTurn)}
-          />
+      ) : null}
+
+      <div
+        ref={boardContainerRef}
+        className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950 ${
+          showSidePanel
+            ? "md:grid md:grid-cols-[minmax(0,1fr)_min(20rem,34vw)]"
+            : ""
+        }`}
+      >
+        {boardFullscreen ? (
+          <button
+            type="button"
+            onClick={() => void document.exitFullscreen()}
+            className="fixed bottom-4 right-4 z-50 rounded-lg border border-zinc-600 bg-zinc-900/95 px-4 py-2.5 text-sm font-medium text-zinc-100 shadow-lg backdrop-blur transition hover:border-emerald-600 hover:bg-zinc-900 hover:text-emerald-300"
+          >
+            Exit fullscreen
+          </button>
+        ) : null}
+
+        <div
+          className={`scrollbar-hidden min-h-0 overflow-auto overscroll-contain ${
+            showSidePanel
+              ? `min-h-0 flex-1 ${mobilePane === "players" ? "hidden md:block" : "block"} md:border-r md:border-zinc-800`
+              : "flex-1"
+          }`}
+        >
+          <div className="min-w-max p-2">
+            <DraftBoard
+              columns={board.columns}
+              rounds={board.rounds}
+              scrollable
+            />
+          </div>
         </div>
+
+        {showSidePanel ? (
+          <div
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950/80 ${
+              mobilePane === "board" ? "hidden md:flex" : "flex"
+            }`}
+          >
+            <DraftSidePanel
+              teams={teams}
+              picks={picks}
+              availablePlayers={pool}
+              panelTab={panelTab}
+              onPanelTabChange={setPanelTab}
+              viewTeamSlot={viewTeamSlot}
+              onViewTeamSlotChange={setViewTeamSlot}
+              onDraft={handleUserDraft}
+              canDraft={Boolean(isUserTurn)}
+              onClose={() => setShowPlayerOverlay(false)}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -146,12 +146,24 @@ function DraftBoardGrid({
 export function DraftBoard({
   columns,
   rounds,
+  scrollable = false,
 }: {
   columns: DraftBoardColumn[];
   rounds: number[];
+  /** Fixed row heights; scroll in the parent instead of squashing all rounds into view. */
+  scrollable?: boolean;
 }) {
   if (columns.length === 0) {
     return <p className="text-zinc-500">No draft picks found for this season.</p>;
+  }
+
+  if (scrollable) {
+    return (
+      <div className="flex flex-col gap-2">
+        <PositionLegend compact />
+        <DraftBoardGrid columns={columns} rounds={rounds} variant="mobile" />
+      </div>
+    );
   }
 
   return (
