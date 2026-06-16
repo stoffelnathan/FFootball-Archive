@@ -25,8 +25,8 @@ export default async function MockDraftPage() {
             June 2026 Underdog ADP (half-PPR → full PPR + TE premium)
           </p>
         </div>
-        <p className="shrink-0 pt-8 text-[10px] uppercase tracking-wide text-zinc-600">
-          Build {deploySha}
+        <p className="shrink-0 pt-8 text-xs font-medium text-emerald-400/80">
+          v{deploySha}
         </p>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
