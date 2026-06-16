@@ -33,17 +33,30 @@ export default async function DraftPage({
   const board = await getDraftBoard(selectedYear);
 
   return (
-    <PageShell title="Draft Archive" subtitle={`${selectedYear} draft board`} wide>
-      <div className="mb-6 flex flex-wrap gap-2">
-        {seasons.map((season) => (
-          <Link
-            key={season.id}
-            href={`/draft?year=${season.year}`}
-            className={`rounded-lg border px-3 py-2 text-sm ${selectedYear === season.year ? "border-emerald-600 bg-emerald-600/10" : "border-zinc-800 hover:border-zinc-700"}`}
-          >
-            {season.year}
-          </Link>
-        ))}
+    <PageShell
+      title="Draft Archive"
+      subtitle={`${selectedYear} draft board`}
+      wide
+      className="lg:flex lg:min-h-[calc(100dvh-4.5rem)] lg:flex-col lg:py-6"
+    >
+      <div className="mb-4 shrink-0 lg:mb-3">
+        <Link
+          href="/draft/mock"
+          className="mb-3 inline-flex rounded-lg border border-emerald-700/60 bg-emerald-600/10 px-3 py-2 text-sm text-emerald-300 transition hover:border-emerald-600"
+        >
+          Mock draft for our league settings →
+        </Link>
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]">
+          {seasons.map((season) => (
+            <Link
+              key={season.id}
+              href={`/draft?year=${season.year}`}
+              className={`shrink-0 rounded-lg border px-3 py-2 text-sm ${selectedYear === season.year ? "border-emerald-600 bg-emerald-600/10" : "border-zinc-800 hover:border-zinc-700"}`}
+            >
+              {season.year}
+            </Link>
+          ))}
+        </div>
       </div>
 
       <DraftBoard columns={board.columns} rounds={board.rounds} />

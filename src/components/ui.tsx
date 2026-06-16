@@ -5,15 +5,19 @@ export function PageShell({
   subtitle,
   children,
   wide = false,
+  className,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   wide?: boolean;
+  className?: string;
 }) {
   return (
-    <div className={`mx-auto px-4 py-8 ${wide ? "max-w-[1600px]" : "max-w-6xl"}`}>
-      <div className="mb-8">
+    <div
+      className={`mx-auto px-4 py-8 ${wide ? "max-w-[1600px]" : "max-w-6xl"} ${className ?? ""}`}
+    >
+      <div className="mb-6 shrink-0 lg:mb-4">
         <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">
           {title}
         </h1>

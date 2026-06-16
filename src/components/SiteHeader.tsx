@@ -8,6 +8,7 @@ const links = [
   { href: "/owners", label: "Owners" },
   { href: "/players", label: "Players" },
   { href: "/draft", label: "Draft" },
+  { href: "/draft/mock", label: "Mock Draft" },
   { href: "/records", label: "Records" },
   { href: "/awards", label: "Awards" },
   { href: "/h2h", label: "Head-to-Head" },
