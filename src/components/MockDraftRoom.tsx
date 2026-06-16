@@ -883,7 +883,7 @@ export function MockDraftRoom({
         : "CPU";
 
   return (
-    <div className="fixed inset-x-0 bottom-0 top-[8.75rem] z-30 flex flex-col bg-zinc-950 lg:top-[5.5rem]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
       <div className="z-20 flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-zinc-950 px-4 py-2.5">
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-wide text-zinc-500">

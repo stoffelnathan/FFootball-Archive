@@ -1,14 +1,18 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_DEPLOY_SHA:
+      process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+  },
   async headers() {
     return [
       {
-        source: "/draft/mock",
+        source: "/((?!_next/static|_next/image|favicon.ico).*)",
         headers: [
           {
             key: "Cache-Control",
-            value: "no-store, must-revalidate",
+            value: "private, no-cache, no-store, max-age=0, must-revalidate",
           },
         ],
       },
