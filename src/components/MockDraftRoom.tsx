@@ -887,7 +887,7 @@ export function MockDraftRoom({
 
           const roster = rosterFromPicks(nextSlot, workingPicks);
           const round = roundForPick(nextOverall);
-          const selected = cpuSelectPlayer(remaining, roster, round);
+          const selected = cpuSelectPlayer(remaining, roster, round, nextOverall);
           const pick: MockDraftPick = {
             overallPick: nextOverall,
             round,
@@ -929,7 +929,8 @@ export function MockDraftRoom({
       if (remaining.length > 0 && userSlot != null) {
         const roster = rosterFromPicks(userSlot, picks);
         const round = roundForPick(picks.length + 1);
-        const selected = cpuSelectPlayer(remaining, roster, round);
+        const nextOverall = picks.length + 1;
+        const selected = cpuSelectPlayer(remaining, roster, round, nextOverall);
         makePick(selected, userSlot);
       }
       return;

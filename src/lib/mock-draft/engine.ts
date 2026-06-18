@@ -245,43 +245,103 @@ function positionalNeed(
   return need;
 }
 
-/** Round-one upset tendencies — multipliers on top of rank-based weight. */
+/** Light round-one variation once Bijan/Gibbs are off the board. */
 const ROUND1_NAME_BOOSTS: Record<string, number> = {
-  "bijan robinson": 1,
-  "jahmyr gibbs": 1.5,
-  "jamarr chase": 1.25,
-  "puka nacua": 1.2,
-  "jaxon smith njigba": 0.95,
+  "jamarr chase": 1.12,
+  "puka nacua": 1.08,
+  "trey mcbride": 1.06,
 };
+
+function findPlayerByNameKey(
+  sorted: MockDraftPlayer[],
+  nameKey: string,
+): MockDraftPlayer | undefined {
+  return sorted.find((player) => normalizePlayerName(player.name) === nameKey);
+}
 
 function weightedRandomPick(
   weighted: Array<{ player: MockDraftPlayer; weight: number }>,
 ): MockDraftPlayer {
-  const total = weighted.reduce((sum, entry) => sum + entry.weight, 0);
-  if (total <= 0) return weighted[0]!.player;
+  const active = weighted.filter((entry) => entry.weight > 0);
+  if (active.length === 0) return weighted[0]!.player;
+
+  const total = active.reduce((sum, entry) => sum + entry.weight, 0);
+  if (total <= 0) return active[0]!.player;
 
   let roll = Math.random() * total;
-  for (const entry of weighted) {
+  for (const entry of active) {
     roll -= entry.weight;
     if (roll <= 0) return entry.player;
   }
 
-  return weighted[weighted.length - 1]!.player;
+  return active[active.length - 1]!.player;
+}
+
+/**
+ * Keep Bijan/Gibbs in the top three almost always. If either is still
+ * available at pick four or later, grab them immediately.
+ */
+function tryEarlyRoundAnchorPick(
+  sorted: MockDraftPlayer[],
+  round: number,
+  overallPick: number,
+): MockDraftPlayer | null {
+  const bijan = findPlayerByNameKey(sorted, "bijan robinson");
+  const gibbs = findPlayerByNameKey(sorted, "jahmyr gibbs");
+  const chase = findPlayerByNameKey(sorted, "jamarr chase");
+
+  if (bijan && overallPick >= 4) {
+    return Math.random() < 0.985 ? bijan : sorted[0]!;
+  }
+
+  if (!bijan && gibbs && overallPick >= 4 && overallPick <= 6) {
+    return Math.random() < 0.97 ? gibbs : sorted[0]!;
+  }
+
+  if (round !== 1 || overallPick > 3) {
+    return null;
+  }
+
+  if (bijan) {
+    return weightedRandomPick([
+      { player: bijan, weight: overallPick === 1 ? 93 : 90 },
+      ...(gibbs ? [{ player: gibbs, weight: overallPick === 1 ? 5 : 7 }] : []),
+      ...(chase ? [{ player: chase, weight: 2 }] : []),
+      { player: sorted[0]!, weight: 1 },
+    ]);
+  }
+
+  if (gibbs) {
+    return weightedRandomPick([
+      { player: gibbs, weight: 86 },
+      ...(chase ? [{ player: chase, weight: 9 }] : []),
+      { player: sorted[0]!, weight: 5 },
+    ]);
+  }
+
+  return null;
 }
 
 function buildCandidates(
   sorted: MockDraftPlayer[],
   round: number,
+  overallPick: number,
 ): MockDraftPlayer[] {
-  const poolSize = round === 1 ? 4 : 3;
+  let poolSize = 3;
+  if (round === 1) {
+    poolSize = overallPick <= 6 ? 2 : 3;
+  } else if (round === 2) {
+    poolSize = 2;
+  }
+
   const candidates = sorted.slice(0, Math.min(poolSize, sorted.length));
 
   const bestTe = sorted.find((player) => player.position === "TE");
   if (
     bestTe &&
-    bestTe.rank >= 5 &&
-    bestTe.rank <= 10 &&
-    round <= 4 &&
+    bestTe.rank >= 4 &&
+    bestTe.rank <= 12 &&
+    round <= 2 &&
     !candidates.some((player) => player.id === bestTe.id)
   ) {
     candidates.push(bestTe);
@@ -290,27 +350,32 @@ function buildCandidates(
   return candidates;
 }
 
+function rankDecayForPick(round: number, overallPick: number): number {
+  if (round === 1) return overallPick <= 6 ? 0.28 : 0.4;
+  if (round === 2) return 0.42;
+  return 0.58;
+}
+
 function candidateWeight(
   player: MockDraftPlayer,
   roster: MockDraftRoster,
   round: number,
+  overallPick: number,
   bestAvailableRank: number,
 ): number {
   const rankGap = player.rank - bestAvailableRank;
-  let weight = 0.58 ** rankGap;
+  const decay = rankDecayForPick(round, overallPick);
+  let weight = decay ** rankGap;
 
   if (round === 1) {
     const boost = ROUND1_NAME_BOOSTS[normalizePlayerName(player.name)];
     if (boost != null) weight *= boost;
   }
 
-  if (player.position === "TE" && round <= 4) {
+  if (player.position === "TE" && round === 2) {
     const counts = countByPosition(roster);
-    if (counts.TE === 0 && player.rank > 1) {
-      const key = normalizePlayerName(player.name);
-      if (key.includes("mcbride")) weight *= 1.45;
-      else if (key.includes("bowers")) weight *= 1.2;
-      else if (player.rank <= 12) weight *= 1.1;
+    if (counts.TE === 0 && player.rank <= 12) {
+      weight *= 1.08;
     }
   }
 
@@ -322,13 +387,14 @@ function candidateWeight(
 
 /**
  * CPU drafts with weighted randomness among the best available players.
- * Mostly follows board rank, with realistic round-one variation and early
- * TE premium urgency so elite TEs do not slide to the end of the first round.
+ * Round one and two stay close to the board; Bijan/Gibbs are anchored in
+ * the top three with only small upset chances.
  */
 export function cpuSelectPlayer(
   available: MockDraftPlayer[],
   roster: MockDraftRoster,
   round: number,
+  overallPick: number,
 ): MockDraftPlayer {
   const sorted = [...available].sort((a, b) => a.rank - b.rank);
   if (sorted.length === 0) {
@@ -347,12 +413,21 @@ export function cpuSelectPlayer(
     }
   }
 
-  const candidates = buildCandidates(sorted, round);
+  const anchorPick = tryEarlyRoundAnchorPick(sorted, round, overallPick);
+  if (anchorPick) return anchorPick;
+
+  const candidates = buildCandidates(sorted, round, overallPick);
   const bestAvailableRank = sorted[0]!.rank;
 
   const weighted = candidates.map((player) => ({
     player,
-    weight: candidateWeight(player, roster, round, bestAvailableRank),
+    weight: candidateWeight(
+      player,
+      roster,
+      round,
+      overallPick,
+      bestAvailableRank,
+    ),
   }));
 
   return weightedRandomPick(weighted);
