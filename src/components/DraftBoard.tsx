@@ -11,6 +11,30 @@ import type { DraftBoardColumn } from "@/lib/services/draft";
 const PICK_TILE_W = "var(--draft-pick-tile-w)";
 const PICK_TILE_H = "var(--draft-pick-tile-h)";
 const ROUND_LABEL_W = "2.75rem";
+const MOBILE_TILE_GAP_REM = 0.375;
+
+function scrollNodeIntoContainer(
+  container: HTMLElement,
+  node: HTMLElement,
+  behavior: ScrollBehavior,
+) {
+  const nodeRect = node.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  const targetLeft =
+    container.scrollLeft +
+    (nodeRect.left - containerRect.left) -
+    (containerRect.width - nodeRect.width) / 2;
+  const targetTop =
+    container.scrollTop +
+    (nodeRect.top - containerRect.top) -
+    (containerRect.height - nodeRect.height) / 2;
+
+  container.scrollTo({
+    left: Math.max(0, targetLeft),
+    top: Math.max(0, targetTop),
+    behavior,
+  });
+}
 
 function playerNameClass(name: string, compact?: boolean): string {
   const base = compact ? "leading-tight" : "leading-snug";
@@ -119,6 +143,7 @@ function DraftBoardGrid({
   roundWindow,
   teamSlotWindow,
   cellRefs,
+  pinRoundLabels = true,
 }: {
   columns: DraftBoardColumn[];
   rounds: number[];
@@ -129,9 +154,12 @@ function DraftBoardGrid({
   roundWindow?: { start: number; end: number };
   teamSlotWindow?: { start: number; end: number };
   cellRefs?: React.MutableRefObject<Map<string, HTMLDivElement>>;
+  pinRoundLabels?: boolean;
 }) {
   const isDesktop = variant === "desktop";
   const isApp = variant === "app";
+  const isMobile = variant === "mobile";
+  const stickyRoundLabels = isMobile && pinRoundLabels;
   const visibleRounds = roundWindow
     ? rounds.filter((round) => round >= roundWindow.start && round <= roundWindow.end)
     : rounds;
@@ -159,7 +187,9 @@ function DraftBoardGrid({
         className={`flex items-end px-1 pb-2 font-medium uppercase tracking-wide text-zinc-500 ${
           isDesktop
             ? "text-[10px]"
-            : "sticky left-0 top-0 z-30 bg-zinc-950 px-2 text-[11px]"
+            : stickyRoundLabels
+              ? "sticky left-0 top-0 z-30 bg-zinc-950 px-2 text-[11px]"
+              : "px-2 text-[11px]"
         }`}
       >
         Rd
@@ -216,7 +246,9 @@ function DraftBoardGrid({
               className={`flex items-center px-1 font-medium text-zinc-400 ${
                 isDesktop
                   ? "text-xs"
-                  : "sticky left-0 z-10 bg-zinc-950/95 px-2 text-sm backdrop-blur-sm"
+                  : stickyRoundLabels
+                    ? "sticky left-0 z-10 bg-zinc-950/95 px-2 text-sm backdrop-blur-sm"
+                    : "px-2 text-sm"
               }`}
             >
               {round}
@@ -285,6 +317,9 @@ export type DraftBoardProps = {
   rounds: number[];
   scrollable?: boolean;
   mobileRoundWindow?: number;
+  mobileVisibleColumns?: number;
+  fillAvailable?: boolean;
+  pinRoundLabels?: boolean;
   appBoard?: boolean;
   onClockTeamSlot?: number | null;
   onClockOverallPick?: number | null;
@@ -300,6 +335,9 @@ export function DraftBoard({
   rounds,
   scrollable = false,
   mobileRoundWindow = 2.75,
+  mobileVisibleColumns,
+  fillAvailable = false,
+  pinRoundLabels = true,
   appBoard = false,
   unifiedScroll = false,
   onClockTeamSlot = null,
@@ -311,9 +349,30 @@ export function DraftBoard({
 }: DraftBoardProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const userScrolledRef = useRef(false);
   const enableWheelScroll = (appBoard || scrollable) && !unifiedScroll;
 
   useContainedWheelScroll(scrollRef, enableWheelScroll);
+
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container || !scrollable) return;
+
+    const markUserScroll = () => {
+      if (!followOnClock) userScrolledRef.current = true;
+    };
+
+    container.addEventListener("touchstart", markUserScroll, { passive: true });
+    container.addEventListener("wheel", markUserScroll, { passive: true });
+    return () => {
+      container.removeEventListener("touchstart", markUserScroll);
+      container.removeEventListener("wheel", markUserScroll);
+    };
+  }, [scrollable, followOnClock]);
+
+  useEffect(() => {
+    if (followOnClock) userScrolledRef.current = false;
+  }, [followOnClock]);
 
   useEffect(() => {
     if (!appBoard || unifiedScroll || !scrollRef.current || onClockTeamSlot == null) return;
@@ -333,45 +392,34 @@ export function DraftBoard({
       ) as HTMLElement | null;
       if (!column) return;
 
-      const columnRect = column.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      container.scrollLeft =
-        columnRect.left -
-        containerRect.left +
-        container.scrollLeft -
-        (container.clientWidth - columnRect.width) / 2;
+      scrollNodeIntoContainer(container, column, "smooth");
     });
-  }, [appBoard, columns.length, onClockTeamSlot]);
+  }, [appBoard, unifiedScroll, columns.length, onClockTeamSlot]);
 
   useEffect(() => {
-    if (!followOnClock || onClockTeamSlot == null || onClockOverallPick == null) return;
-    const currentRound = Math.ceil(onClockOverallPick / columns.length);
-    const key = `${onClockTeamSlot}-${currentRound}`;
+    if (!followOnClock || !scrollable) return;
+
+    const focusSlot = thinkingTeamSlot ?? onClockTeamSlot;
+    if (focusSlot == null || onClockOverallPick == null) return;
+    if (userScrolledRef.current) return;
+
+    const currentRound = roundForPick(onClockOverallPick);
+    const key = `${focusSlot}-${currentRound}`;
     const node = cellRefs.current.get(key);
     const container = scrollRef.current;
     if (!node || !container) return;
 
     requestAnimationFrame(() => {
-      const nodeRect = node.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      const dx =
-        nodeRect.left -
-        containerRect.left -
-        containerRect.width / 2 +
-        nodeRect.width / 2;
-      const dy =
-        nodeRect.top -
-        containerRect.top -
-        containerRect.height / 2 +
-        nodeRect.height / 2;
-      container.scrollBy({ left: dx, top: dy, behavior: "smooth" });
+      scrollNodeIntoContainer(container, node, "smooth");
     });
   }, [
     followOnClock,
+    scrollable,
     onClockTeamSlot,
     onClockOverallPick,
+    thinkingTeamSlot,
     roundWindow?.start,
-    teamSlotWindow?.start,
+    roundWindow?.end,
   ]);
 
   if (columns.length === 0) {
@@ -387,6 +435,7 @@ export function DraftBoard({
     roundWindow,
     teamSlotWindow,
     cellRefs,
+    pinRoundLabels,
   };
 
   if (appBoard && unifiedScroll) {
@@ -419,22 +468,39 @@ export function DraftBoard({
     const visibleRoundCount = roundWindow
       ? roundWindow.end - roundWindow.start + 1
       : mobileRoundWindow;
-    const viewportHeight = `calc(3.25rem + 3rem + ${visibleRoundCount} * (var(--draft-pick-tile-h) + 0.375rem))`;
+    const viewportHeight = fillAvailable
+      ? undefined
+      : `calc(3.25rem + 3rem + ${visibleRoundCount} * (var(--draft-pick-tile-h) + ${MOBILE_TILE_GAP_REM}rem))`;
+    const fullMobileBoard = fillAvailable && mobileVisibleColumns != null;
+    const visibleColumnCount = mobileVisibleColumns ?? 4.5;
 
     return (
-      <div className="flex flex-col gap-2">
+      <div className={`flex flex-col gap-2 ${fillAvailable ? "min-h-0 flex-1" : ""}`}>
         <PositionLegend compact />
         <div
           ref={scrollRef}
-          className="scrollbar-hidden overflow-auto overscroll-contain rounded-lg border border-zinc-800/80 bg-zinc-950/60 [-webkit-overflow-scrolling:touch]"
-          style={{ maxHeight: viewportHeight }}
+          className={`scrollbar-hidden w-full max-w-full overflow-auto overscroll-contain rounded-lg border border-zinc-800/80 bg-zinc-950/60 [-webkit-overflow-scrolling:touch] ${
+            fillAvailable ? "min-h-0 flex-1" : ""
+          } ${followOnClock ? "draft-board-follow-scroll" : ""} ${
+            fullMobileBoard ? "draft-board-full-mobile" : ""
+          }`}
+          style={{
+            maxHeight: viewportHeight,
+            ...(fullMobileBoard
+              ? ({
+                  "--draft-board-visible-cols": visibleColumnCount,
+                } as React.CSSProperties)
+              : undefined),
+          }}
         >
           <DraftBoardGrid {...gridProps} variant="mobile" />
         </div>
         <p className="text-center text-[11px] text-zinc-500">
           {followOnClock
-            ? "Following live picks · swipe for more teams"
-            : "Scroll for more rounds · swipe sideways for all teams"}
+            ? "Following live picks · swipe sideways anytime on your turn"
+            : roundWindow
+              ? "Swipe sideways to browse teams · 3 rounds shown"
+              : "Scroll for all rounds · swipe sideways for teams"}
         </p>
       </div>
     );

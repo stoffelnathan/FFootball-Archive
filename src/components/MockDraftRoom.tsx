@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useContainedWheelScroll } from "@/hooks/use-contained-wheel-scroll";
+import { useIsMobile } from "@/hooks/use-media-query";
 import { useUnifiedDraftScroll } from "@/hooks/use-unified-draft-scroll";
 import { DraftBoard } from "@/components/DraftBoard";
 import { positionStyle } from "@/lib/position-colors";
@@ -809,7 +810,6 @@ export function MockDraftRoom({
     if (currentTeamSlot == null) {
       return {
         roundWindow: { start: 1, end: Math.min(3, MOCK_DRAFT.rounds) },
-        teamSlotWindow: { start: 1, end: Math.min(5, MOCK_DRAFT.teamCount) },
       };
     }
     const currentRound = roundForPick(currentOverallPick);
@@ -818,12 +818,10 @@ export function MockDraftRoom({
         start: Math.max(1, currentRound - 1),
         end: Math.min(MOCK_DRAFT.rounds, currentRound + 2),
       },
-      teamSlotWindow: {
-        start: Math.max(1, currentTeamSlot - 2),
-        end: Math.min(MOCK_DRAFT.teamCount, currentTeamSlot + 2),
-      },
     };
   }, [currentTeamSlot, currentOverallPick]);
+
+  const isMobile = useIsMobile();
 
   const resetTimer = useCallback(() => {
     setTimerSeconds(pickTimerLimit ?? MOCK_DRAFT.defaultPickTimerSeconds);
@@ -1144,7 +1142,19 @@ export function MockDraftRoom({
             </button>
           </div>
           <div className="flex min-h-0 flex-1 flex-col p-3">
-            <DraftBoard {...boardProps} appBoard />
+            {isMobile === true ? (
+              <DraftBoard
+                {...boardProps}
+                scrollable
+                fillAvailable
+                mobileVisibleColumns={4.5}
+                pinRoundLabels={false}
+                mobileRoundWindow={MOCK_DRAFT.rounds}
+                followOnClock={!isUserTurn}
+              />
+            ) : (
+              <DraftBoard {...boardProps} appBoard />
+            )}
           </div>
         </div>
       ) : null}
@@ -1156,9 +1166,8 @@ export function MockDraftRoom({
           <DraftBoard
             {...boardProps}
             scrollable
-            followOnClock
+            followOnClock={!isUserTurn}
             roundWindow={boardSnippetWindows.roundWindow}
-            teamSlotWindow={boardSnippetWindows.teamSlotWindow}
           />
         </div>
         <div className="draft-panel-shell flex min-h-0 flex-1 flex-col border-t border-zinc-800/80">

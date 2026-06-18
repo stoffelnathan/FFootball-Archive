@@ -295,6 +295,31 @@ html::-webkit-scrollbar-thumb:hover {
   user-select: none;
 }
 
+.draft-board-follow-scroll {
+  scroll-behavior: smooth;
+}
+
+/* Full mobile board: ~4.5–5 pick boxes visible, swipe for the rest */
+.draft-board-full-mobile {
+  --draft-board-visible-cols: 4.5;
+  --draft-pick-tile-w: calc(
+    (100vw - 3rem - 2.75rem - (var(--draft-board-visible-cols) - 1) * 0.375rem) /
+      var(--draft-board-visible-cols)
+  );
+}
+
+.draft-board-full-mobile .draft-pick-tile {
+  width: var(--draft-pick-tile-w);
+  min-width: var(--draft-pick-tile-w);
+  max-width: var(--draft-pick-tile-w);
+}
+
+.draft-board-full-mobile [data-team-slot] {
+  width: var(--draft-pick-tile-w) !important;
+  min-width: var(--draft-pick-tile-w) !important;
+  max-width: var(--draft-pick-tile-w) !important;
+}
+
 @media (max-width: 767px) {
   .draft-mock-page:has(.draft-mobile-setup) {
     padding-bottom: 0;
