@@ -20,6 +20,8 @@ export const MOCK_DRAFT = {
   tePremiumPprBonus: 0.5,
   /** Extra FLEX devalues QBs relative to skill positions. */
   qbValueMultiplier: 0.88,
+  /** Pause between CPU selections (ms). */
+  cpuPickDelayMs: 1000,
 } as const;
 
 /** null = unlimited time per pick */

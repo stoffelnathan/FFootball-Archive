@@ -3,6 +3,8 @@
 :root {
   --background: #09090b;
   --foreground: #fafafa;
+  --draft-pick-tile-w: 5.5rem;
+  --draft-pick-tile-h: 5.25rem;
 }
 
 @theme inline {
@@ -53,4 +55,252 @@ html::-webkit-scrollbar-thumb:hover {
 
 .scrollbar-hidden::-webkit-scrollbar {
   display: none;
+}
+
+/* Draft room panel + overlay transitions */
+.draft-panel-shell {
+  transition:
+    height 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    flex 280ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 200ms ease-out;
+}
+
+/* Desktop draft workspace: board + sliding bottom drawer */
+.draft-desktop-workspace {
+  display: none;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0%;
+  overflow: hidden;
+  transition: grid-template-rows 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (min-width: 768px) {
+  .draft-desktop-workspace {
+    display: grid;
+  }
+}
+
+.draft-desktop-workspace > * {
+  min-height: 0;
+}
+
+.draft-desktop-workspace[data-panel="expanded"] {
+  grid-template-rows: minmax(0, 50fr) minmax(0, 50fr);
+}
+
+.draft-desktop-workspace[data-panel="collapsed"] {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 0fr);
+}
+
+.draft-board-region {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.draft-board-app {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0%;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.draft-board-scroll {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow: auto;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Full-width connected grid inside scroll/viewport */
+.draft-board-scroll-track {
+  width: 100%;
+  min-height: 100%;
+}
+
+.draft-board-grid-wrap {
+  width: 100%;
+}
+
+.draft-board-app-unified .draft-board-grid-wrap {
+  width: 100%;
+}
+
+.draft-panel-drawer {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-top: 1px solid rgb(39 39 42);
+  background-color: rgb(9 9 11);
+}
+
+.draft-desktop-workspace[data-panel="collapsed"] .draft-panel-drawer {
+  pointer-events: none;
+  border-top-color: transparent;
+}
+
+.draft-side-panel {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.draft-side-panel-chrome {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.draft-side-panel-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Unified desktop draft scroll (Phase 15) */
+.draft-unified-root {
+  width: 100%;
+}
+
+.draft-unified-track {
+  position: relative;
+  width: 100%;
+}
+
+.draft-unified-workspace {
+  z-index: 10;
+}
+
+.draft-unified-board-viewport {
+  position: relative;
+}
+
+.draft-unified-board-content {
+  will-change: transform;
+}
+
+.draft-board-app-unified {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.draft-side-panel-unified {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.draft-side-panel-body {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.draft-board-overlay {
+  animation: draft-overlay-in 280ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes draft-overlay-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.draft-pick-pulse {
+  animation: draft-pick-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes draft-pick-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Connected draft grid (desktop app board) */
+.draft-board-grid-frame {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(63 63 70);
+  background-color: rgb(39 39 42);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.draft-pick-grid-app {
+  background-color: rgb(39 39 42);
+}
+
+.draft-pick-grid-app .draft-pick-cell {
+  min-width: 0;
+  min-height: 0;
+}
+
+.draft-pick-grid-app .draft-pick-tile,
+.draft-pick-grid-app .draft-pick-tile-connected {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: var(--draft-pick-tile-h);
+  min-height: var(--draft-pick-tile-h);
+  max-height: var(--draft-pick-tile-h);
+  border-radius: 0.375rem;
+  margin: 0;
+}
+
+/* Fixed draft pick tile dimensions (Phase 7) */
+.draft-pick-tile {
+  width: var(--draft-pick-tile-w);
+  height: var(--draft-pick-tile-h);
+  min-width: var(--draft-pick-tile-w);
+  max-width: var(--draft-pick-tile-w);
+  min-height: var(--draft-pick-tile-h);
+  max-height: var(--draft-pick-tile-h);
+  overflow: hidden;
+}
+
+/* Mobile slot picker — reliable taps, no double-tap zoom on buttons (Phase 6) */
+.slot-picker-surface {
+  touch-action: manipulation;
+}
+
+.slot-picker-button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (max-width: 767px) {
+  .draft-mock-page:has(.draft-mobile-setup) {
+    padding-bottom: 0;
+  }
+
+  .draft-mobile-setup select {
+    touch-action: manipulation;
+  }
 }

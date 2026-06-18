@@ -19,7 +19,7 @@ export async function SiteHeader() {
   const leagueName = await getLeagueName();
 
   return (
-    <header className="border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
+    <header className="shrink-0 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <Link href="/" className="text-lg font-semibold text-zinc-100">
