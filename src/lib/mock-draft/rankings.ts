@@ -36,7 +36,30 @@ function wrFullPprLift(underdogRank: number): number {
 const PLAYER_RANK_DELTAS: Record<string, number> = {
   "malik nabers": 3,
   "aj brown": -2,
+  "joe burrow": 10,
+  "drake maye": -10,
+  "jayden daniels": -4,
+  "jalen hurts": -3,
+  "caleb williams": 4,
+  "lamar jackson": -3,
+  "patrick mahomes": -4,
+  "justin herbert": -2,
 };
+
+/**
+ * Soften the cliff after Josh Allen without moving him — lift QB2–QB12 on
+ * Underdog ADP while Allen (top ~35 overall) stays put.
+ */
+function qbTierCompression(underdogRank: number, nameKey: string): number {
+  if (nameKey.includes("josh allen") || underdogRank > 130) {
+    return 0;
+  }
+
+  if (underdogRank <= 55) return 7;
+  if (underdogRank <= 80) return 9;
+  if (underdogRank <= 100) return 7;
+  return 5;
+}
 
 /**
  * Adjustments for our full-PPR league (TE at 1.5 PPR) from Underdog half-PPR ADP.
@@ -69,6 +92,10 @@ function effectiveRank(
     }
   }
 
+  if (position === "QB") {
+    rank -= qbTierCompression(underdogRank, key);
+  }
+
   const delta = PLAYER_RANK_DELTAS[key];
   if (delta != null) {
     rank += delta;
@@ -79,7 +106,7 @@ function effectiveRank(
 
 /**
  * Build mock draft rankings from June 2026 Underdog ADP (half-PPR), adjusted for
- * full PPR (WR lift) and TE premium (1.5 PPR).
+ * full PPR (WR lift), TE premium (1.5 PPR), and compressed QB tiers.
  */
 export function buildMockDraftRankings(
   poolPlayers: PoolPlayer[],
