@@ -78,10 +78,10 @@ function effectiveRank(
 
   if (position === "TE") {
     if (key.includes("mcbride")) {
-      // Target ~4–5 on the board (Underdog 25).
-      rank -= 21;
+      // Target ~4–5 on the board (Underdog 17).
+      rank -= 13;
     } else if (key.includes("bowers")) {
-      // Target ~9–10 on the board (Underdog 20).
+      // Target ~9–10 on the board (Underdog 23).
       rank -= 14;
     } else if (underdogRank <= 50) {
       rank -= 12;

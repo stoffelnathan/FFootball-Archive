@@ -16,6 +16,7 @@
     "db:backfill-stats": "tsx scripts/backfill-player-season-stats.ts",
     "db:backfill-weekly": "tsx scripts/backfill-weekly-points.ts",
     "db:fix-standings": "tsx scripts/fix-team-standings.ts",
+    "db:sync-teams": "tsx scripts/sync-player-teams.ts",
     "db:seed": "tsx scripts/seed-production.ts",
     "db:status": "prisma dev ls",
     "db:migrate": "prisma migrate dev",
